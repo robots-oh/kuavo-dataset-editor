@@ -1,10 +1,9 @@
 # Development
 
-Use a dedicated Python 3.12+ environment. Do not install into a ROS/Isaac environment.
+Use a dedicated Python 3.12 environment on Linux x86_64. Do not install into a ROS/Isaac environment.
 
 ```bash
-bash setup.sh --with-desktop --with-export
-.venv/bin/python -m pip install -e '.[test]'
+bash setup.sh --with-test
 PYTHONPATH=src .venv/bin/python -m pytest -q tests
 node tests/test_ranges.mjs
 node tests/test_tasks.mjs
@@ -30,12 +29,15 @@ Neither that link nor `.venv` belongs in Git or a portable source bundle.
 
 ## Distribution
 
-`pyproject.toml` defines the installable Python package and `kuavo-dataset-editor`
+`pyproject.toml` plus the committed `uv.lock` define reproducible source-checkout
+installation, including the pinned official LeRobot archive and CPU torch packages.
+Use setup.sh (not an unconstrained pip install) for the tested full environment.
+`pyproject.toml` also defines the installable Python package and `kuavo-dataset-editor`
 console entry point. Static assets and the default profile are package resources.
 `desktop.sh` is a convenient source-checkout entry point, not a frozen executable.
 
 ```bash
-.venv/bin/python -m pip wheel --no-deps . --wheel-dir dist
+.bootstrap/bin/uv build --wheel
 bash package.sh
 ```
 

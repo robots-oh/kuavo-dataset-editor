@@ -23,6 +23,8 @@ The browser/server mode is still supported. Neither mode changes the source data
 | `bag.py`, `ros1_reader.py` | ROS1 import and manufacturer message compatibility |
 | `profiles/` | Robot-specific topic, units, sampling, feature mappings |
 | `exporter.py` | Official LeRobot writer, new output, provenance, small reload |
+| `integrations/lerobot.py` | Upstream writer/loader capability adapter and version provenance |
+| `doctor.py` | Installed dependency checks and optional disposable export smoke |
 | `jobs.py` | Import/export workers and durable job logs/status |
 | `app.py`, `static/` | Shared editing UI and local API |
 | `desktop.py` | Native window and dialogs, not a second editing engine |

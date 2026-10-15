@@ -17,21 +17,22 @@ kuavo-dataset-editor/
 └── setup.sh / desktop.sh / run.sh / package.sh
 ```
 
-[구조](docs/ARCHITECTURE.md) · [개발·패키징](docs/DEVELOPMENT.md) · [검증 범위](docs/VALIDATION.md)
+[새 PC 설치·실행](docs/GETTING_STARTED.md) · [LeRobot 업데이트](docs/LEROBOT_COMPATIBILITY.md) · [구조](docs/ARCHITECTURE.md) · [개발·패키징](docs/DEVELOPMENT.md) · [검증 범위](docs/VALIDATION.md)
 
 ## 설치
 
-Linux와 Python 3.12 이상을 사용한다. ROS/Isaac용 Python에 설치하지 않는다.
-이 폴더에서 다음 명령을 실행하면 편집기 전용 `.venv`만 생성한다.
+현재 지원 환경은 Linux x86_64, Python 3.12, CPU PyTorch다. ROS/Isaac용 Python에 설치하지 않는다.
+새 Ubuntu PC의 OS 라이브러리는 `bash tools/install_system_deps.sh`로 명시적으로 준비한다.
+이 폴더에서 다음 명령을 실행하면 잠금파일로 편집기 전용 `.venv`와 필요한 의존성을 생성한다.
 
 ```bash
-bash setup.sh --with-export
-bash run.sh
+bash setup.sh
+bash desktop.sh
 ```
 
-브라우저에서 `http://127.0.0.1:8765`를 연다.
+데스크톱 창이 열린다. 웹 모드는 `bash run.sh` 후 `http://127.0.0.1:8765`를 연다.
 처음 설치에만 인터넷이 필요하며, 편집·bag 읽기·export는 로컬 파일만 사용한다.
-UI만 먼저 사용할 경우 `bash setup.sh`로 설치하고 export 환경은 나중에 추가해도 된다.
+기본 설치에는 desktop과 export가 포함된다. 읽기/UI용 최소 환경만 필요하면 `bash setup.sh --minimal`을 쓴다.
 CPU 전용 PyTorch를 먼저 설치하므로 GPU나 CUDA 설치가 필요하지 않다.
 
 ## 별도 데스크톱 앱
@@ -84,7 +85,7 @@ EDITOR_TEST_DESKTOP=1 PYTHONPATH=src "$EDITOR_PYTHON" -m pytest -q tests/test_de
 공식 LeRobot 소스 checkout을 사용할 때는 `LEROBOT_SOURCE=/absolute/path/lerobot/src`를 지정한다.
 확인한 공식 코드 commit은 `d20a4538016d9fe0374a34011aebc1c8cddf3e0d`이며 dataset 형식은 v3.0이다.
 서로 다른 PC에서 실행 환경을 재현하려면 같은 LeRobot 버전을 사용한다.
-해당 소스는 0.6.2 개발 버전이며 PyPI 공개 버전과 다를 수 있어 설치 스크립트는 공식 Git commit을 고정한다.
+해당 소스는 0.6.2 개발 버전이며 PyPI 공개 버전과 다를 수 있어 pyproject의 공식 commit 아카이브와 uv.lock으로 고정한다.
 
 ## 데이터 경로 지정
 
@@ -243,7 +244,7 @@ ssh -N -L 8765:127.0.0.1:8765 <user>@<DEVELOPMENT_PC>
 
 ```bash
 EDITOR_PYTHON=.venv/bin/python
-"$EDITOR_PYTHON" -m pip install pytest
+bash setup.sh --with-test
 PYTHONPATH=src "$EDITOR_PYTHON" -m pytest -q tests/test_core.py tests/test_bag.py
 EDITOR_TEST_EXPORT=1 PYTHONPATH=src "$EDITOR_PYTHON" -m pytest -q tests/test_export.py
 # 프런트엔드 경계 연산을 개발용 Node가 있을 때 확인 (실행 환경에는 Node 불필요)

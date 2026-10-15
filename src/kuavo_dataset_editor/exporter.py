@@ -9,6 +9,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .core import EditError, compile_selection
+from .integrations.lerobot import LeRobotBackend
 from .sources import CatalogSource, fingerprint, open_source, write_json
 
 
@@ -29,12 +30,7 @@ def export_dataset(project, target, job_root, progress):
     os.environ["HF_DATASETS_CACHE"] = str(cache / "datasets")
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
-    try:
-        from lerobot.datasets.lerobot_dataset import LeRobotDataset
-        from lerobot.datasets.dataset_metadata import CODEBASE_VERSION
-        from lerobot.configs import RGBEncoderConfig
-    except ImportError as exc:
-        raise RuntimeError("공식 LeRobot export 환경이 필요합니다. README의 export 설치 절차를 확인하세요.") from exc
+    backend = LeRobotBackend()
     plan = compile_selection(project)
     if not plan["runs"]:
         raise EditError("라벨이 있는 구간이 없습니다.")
@@ -63,10 +59,8 @@ def export_dataset(project, target, job_root, progress):
         original = Path(sources[sid].get("original_path", sources[sid]["path"]))
         if expected and expected["method"] == "manifest-size-mtime-sha256" and fingerprint(original) != expected:
             raise EditError(f"원본 파일 목록/크기가 변경되었습니다: {sid}. source를 다시 등록하세요.")
-    writer = LeRobotDataset.create(repo_id="local/edited_dataset", fps=plan["fps"],
-                                    features=features, root=staging, robot_type=next(iter(sources.values())).get("robot_type"),
-                                    video_backend="pyav", encoder_threads=2,
-                                    rgb_encoder=RGBEncoderConfig(vcodec="h264", crf=23, preset="veryfast"))
+    writer = backend.create_writer(fps=plan["fps"], features=features, root=staging,
+                                   robot_type=next(iter(sources.values())).get("robot_type"))
     output_rows, truncations, finished = [], [], 0
     try:
         for out_episode, run in enumerate(plan["runs"]):
@@ -96,7 +90,7 @@ def export_dataset(project, target, job_root, progress):
                             if key != "bag_time_ns":
                                 output_rows[-1]["source/"+key] = int(times[key][source_frame])
                     finished += 1
-            writer.save_episode(parallel_encoding=False)
+            backend.save_episode(writer)
         writer.finalize()
     except BaseException:
         # Partial output is intentionally recoverable, never confused with a complete dataset.
@@ -124,13 +118,14 @@ def export_dataset(project, target, job_root, progress):
                                       "output_time_s": t-run["start_frame"]/plan["fps"]}
                             output_events.write(json.dumps(mapped, ensure_ascii=False)+"\n")
     progress(0.94, "작은 round-trip 확인")
-    loaded = LeRobotDataset("local/edited_dataset", root=staging, video_backend="pyav")
+    loaded = backend.load_dataset(staging)
     if len(loaded) != plan["kept_frames"] or loaded.meta.total_episodes != plan["num_episodes"]:
         raise RuntimeError("출력 frame/episode 수가 export 계획과 다릅니다.")
     # Sample only first/last, not a second full decoding pass.
     for index in sorted({0, len(loaded)-1}):
         _ = loaded[index]
-    write_json(provenance / "report.json", {"status": "complete", "codebase_version": CODEBASE_VERSION,
+    write_json(provenance / "report.json", {"status": "complete", "codebase_version": backend.codebase_version,
+                                             "backend": backend.describe(),
                                              "frames": finished, "episodes": plan["num_episodes"],
                                              "round_trip": "official_loader_first_last",
                                              "unlabeled_removed": plan["dropped_frames"],

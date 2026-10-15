@@ -1,4 +1,6 @@
 .venv
+.venv-*
+.bootstrap*/
 __pycache__/
 *.egg-info/
 .pytest_cache/
@@ -12,7 +14,7 @@ htmlcov/
 .env
 .env.*
 !.env.example
-.lerobot-source
+.lerobot-source*
 *.desktop
 *.bag
 *.bag.active

@@ -7,6 +7,11 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser(description="Offline Kuavo / LeRobot video dataset editor")
     sub = parser.add_subparsers(dest="command", required=True)
+    doctor = sub.add_parser("doctor", help="Check installed dependencies; optional disposable 20-frame export")
+    doctor.add_argument("--export", action="store_true")
+    doctor.add_argument("--desktop", action="store_true")
+    doctor.add_argument("--smoke-export", action="store_true")
+    doctor.add_argument("--output")
     serve = sub.add_parser("serve", help="Open a browser editor; localhost by default")
     serve.add_argument("--workspace", default="workspace")
     serve.add_argument("--allow-root", action="append", default=[])
@@ -26,7 +31,10 @@ def main():
     export.add_argument("--jobs-root", default="workspace/jobs")
     args = parser.parse_args()
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
-    if args.command == "desktop":
+    if args.command == "doctor":
+        from .doctor import run
+        run(args)
+    elif args.command == "desktop":
         from .desktop import launch, write_shortcut
         if args.write_shortcut:
             write_shortcut(args.write_shortcut, args.workspace, args.allow_root)

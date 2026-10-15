@@ -2,6 +2,7 @@ name: Small offline editor tests
 on:
   push:
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -15,7 +16,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: python -m pip install -e '.[test]'
-      - run: python -m pytest -q tests
+      - run: bash setup.sh --minimal --with-test
+      - run: .venv/bin/python -m pytest -q tests
       - run: node tests/test_ranges.mjs
       - run: node tests/test_tasks.mjs
