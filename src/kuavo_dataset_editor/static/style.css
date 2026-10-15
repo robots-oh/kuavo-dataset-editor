@@ -1,0 +1,481 @@
+:root {
+  color-scheme: dark;
+  --bg: #11151c;
+  --panel: #191f29;
+  --line: #303a49;
+  --ink: #e9edf3;
+  --muted: #9aa9bc;
+  --accent: #61d6b4;
+  font:
+    14px/1.5 system-ui,
+    -apple-system,
+    sans-serif;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+header {
+  height: 64px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 25px;
+  padding: 0 24px;
+}
+header strong {
+  color: var(--accent);
+  letter-spacing: 2px;
+}
+header span {
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+#saveState {
+  margin-left: auto;
+  color: var(--muted);
+}
+.layout {
+  display: grid;
+  grid-template-columns: 240px minmax(420px, 1fr) 280px;
+  min-height: calc(100vh - 64px);
+}
+aside {
+  padding: 18px;
+  background: var(--panel);
+}
+.sources {
+  border-right: 1px solid var(--line);
+}
+.inspector {
+  border-left: 1px solid var(--line);
+}
+main {
+  padding: 20px;
+  min-width: 0;
+}
+h1 {
+  font-size: 25px;
+  font-weight: 600;
+}
+h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin: 10px 0 14px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.row h2 {
+  margin: 18px 0 10px;
+}
+.muted,
+summary,
+p {
+  color: var(--muted);
+}
+p {
+  font-size: 12px;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button {
+  background: #283344;
+  color: var(--ink);
+  border: 1px solid #3b485d;
+  border-radius: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+button:hover {
+  background: #35445b;
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.primary {
+  background: #255a4f;
+  border-color: #398a76;
+}
+.primary:hover {
+  background: #307365;
+}
+.danger {
+  color: #ffaaa5;
+  border-color: #644345;
+}
+input,
+select,
+textarea {
+  background: #111821;
+  border: 1px solid #3c4656;
+  color: var(--ink);
+  border-radius: 5px;
+  padding: 7px;
+  width: 100%;
+}
+textarea {
+  resize: vertical;
+}
+label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 14px 0 7px;
+}
+label input,
+label textarea {
+  margin-top: 5px;
+}
+.inline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+}
+.inline input,
+.inline select {
+  width: auto;
+}
+.check {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+.check input {
+  width: auto;
+}
+aside > button,
+aside > select {
+  width: 100%;
+  margin-bottom: 8px;
+}
+details {
+  margin: 16px 0;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+summary {
+  cursor: pointer;
+}
+#profile {
+  font: 11px/1.5 monospace;
+  margin-top: 10px;
+}
+hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 25px 0;
+}
+#empty {
+  padding: 65px 20px;
+  text-align: center;
+  min-height: 350px;
+}
+.cameras {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.camera {
+  background: #06090e;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+.camera img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16/10;
+  object-fit: contain;
+}
+.camera figcaption {
+  padding: 6px 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.camera button {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  font-size: 10px;
+  padding: 2px 5px;
+}
+.camera.missing img {
+  opacity: 0.15;
+}
+.camera.missing:after {
+  content: "해당 프레임 없음";
+  position: absolute;
+  left: 15px;
+  top: 40%;
+  color: #ffb4a7;
+}
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0;
+}
+.transport select {
+  width: 85px;
+}
+.transport output {
+  font-family: monospace;
+  margin-right: auto;
+}
+#seek {
+  padding: 0;
+  accent-color: var(--accent);
+}
+#zoom {
+  width: 90px;
+}
+#timelineScroll {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  margin: 10px 0;
+  background: #0c1016;
+}
+#timeline {
+  height: 108px;
+  position: relative;
+  min-width: 100%;
+  user-select: none;
+  touch-action: none;
+}
+#ticks {
+  height: 25px;
+  border-bottom: 1px solid var(--line);
+  position: relative;
+}
+#ticks span {
+  position: absolute;
+  color: var(--muted);
+  font: 10px monospace;
+  top: 5px;
+}
+#track {
+  position: absolute;
+  top: 35px;
+  left: 0;
+  right: 0;
+  height: 48px;
+  background: #212a37;
+}
+.clip {
+  position: absolute;
+  top: 0;
+  height: 48px;
+  border: 1px solid #ffffff55;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #fff;
+  padding: 8px 9px;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.clip.selected {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+.handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  background: #ffffff30;
+  cursor: ew-resize;
+}
+.handle.start {
+  left: 0;
+}
+.handle.end {
+  right: 0;
+}
+#selection {
+  position: absolute;
+  top: 27px;
+  height: 65px;
+  background: #71d9ba22;
+  border: 1px dashed var(--accent);
+  pointer-events: none;
+}
+#playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #fcce76;
+  pointer-events: none;
+}
+#clipList {
+  display: grid;
+  gap: 6px;
+}
+.cliprow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.cliprow.selected {
+  border-color: var(--accent);
+}
+.cliprow .swatch {
+  width: 6px;
+  align-self: stretch;
+  border-radius: 3px;
+}
+.cliprow .time {
+  font: 11px monospace;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.cliprow .text {
+  flex: 1;
+}
+.source {
+  width: 100%;
+  text-align: left;
+  margin: 4px 0;
+  padding: 9px;
+  word-break: break-all;
+}
+.source.active {
+  border-color: var(--accent);
+}
+.source small {
+  display: block;
+  color: var(--muted);
+}
+#sourceList {
+  max-height: 280px;
+  overflow: auto;
+}
+.jobs {
+  border-top: 1px solid var(--line);
+  margin-top: 25px;
+  padding-top: 12px;
+}
+.job {
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin: 7px 0;
+}
+.job progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.job .result {
+  font: 12px monospace;
+  overflow-wrap: anywhere;
+  color: var(--accent);
+}
+.job .error {
+  color: #ffb4a7;
+  overflow-wrap: anywhere;
+}
+.job button {
+  margin-right: 5px;
+  font-size: 12px;
+}
+canvas {
+  width: 100%;
+  display: block;
+  background: #0d1219;
+  margin-top: 8px;
+}
+#toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 700px;
+  padding: 14px 20px;
+  border-radius: 8px;
+  background: #35445b;
+  border: 1px solid #7b95b1;
+  box-shadow: 0 8px 35px #0008;
+  z-index: 9;
+}
+#selectionText {
+  font: 11px monospace;
+  color: var(--accent);
+}
+#snapGuide {
+  position: absolute;
+  top: 24px;
+  bottom: 5px;
+  width: 2px;
+  background: #ff8da5;
+  box-shadow: 0 0 6px #ff8da5;
+  pointer-events: none;
+  z-index: 3;
+}
+.task-presets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 9px;
+}
+.task-presets button {
+  white-space: normal;
+  font-size: 12px;
+  padding: 8px 6px;
+}
+.task-presets button[aria-pressed="true"] {
+  background: #255a4f;
+  border-color: var(--accent);
+  color: #e5fff5;
+}
+[hidden] {
+  display: none !important;
+}
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: 200px minmax(360px, 1fr);
+  }
+  .inspector {
+    grid-column: 1/-1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 20px;
+  }
+  .inspector h2,
+  .inspector hr,
+  .inspector p {
+    grid-column: 1/-1;
+  }
+  .cameras {
+    grid-template-columns: 1fr;
+  }
+  .camera img {
+    aspect-ratio: 16/6;
+  }
+  .transport {
+    flex-wrap: wrap;
+  }
+}

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Kuavo Dataset Editor</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script type="module" src="/static/app.js"></script>
+  </head>
+  <body>
+    <header>
+      <div><strong>KUAVO</strong><span> DATASET EDITOR</span></div>
+      <div id="saveState">프로젝트를 열어주세요</div>
+      <button id="snapshot">프로젝트 JSON</button>
+    </header>
+    <div class="layout">
+      <aside class="sources">
+        <h2>프로젝트</h2>
+        <select id="projectSelect" aria-label="프로젝트"></select>
+        <button id="newProject">＋ 새 프로젝트</button>
+        <h2>원본 데이터</h2>
+        <div id="sourceList"></div>
+        <label
+          >서버의 데이터 경로<input
+            id="importPath"
+            placeholder="/data/trial.bag 또는 LeRobot 폴더"
+        /></label>
+        <button id="import">원본 불러오기</button
+        ><button id="demo">작은 데모 열기</button>
+        <details>
+          <summary>Bag profile 설정</summary>
+          <p>
+            실제 topic·단위·FPS에 맞게 수정합니다. 로봇 설정은 바뀌지 않습니다.
+          </p>
+          <textarea id="profile" rows="16" spellcheck="false"></textarea>
+        </details>
+        <p class="muted">
+          원본은 읽기 전용입니다.<br />라벨 없는 구간은 export에서만 제외됩니다.
+        </p>
+      </aside>
+      <main>
+        <div id="empty">
+          <h1>영상을 보며 데이터에 의미를 붙이세요</h1>
+          <p>원본을 열고 구간 선택 → task 입력 → 선택 구간만 export</p>
+          <p>시작하려면 왼쪽의 <b>작은 데모 열기</b>를 누르세요.</p>
+        </div>
+        <section id="editor" hidden>
+          <div class="row">
+            <h2 id="sourceTitle">원본</h2>
+            <select id="episodeSelect" aria-label="원본 episode"></select
+            ><label class="inline"
+              >학습 split
+              <select id="sourceSplit">
+                <option value="unspecified">미지정</option>
+                <option value="train">train</option>
+                <option value="validation">validation</option>
+                <option value="test">test</option>
+              </select></label
+            >
+          </div>
+          <div id="cameras" class="cameras"></div>
+          <div class="transport">
+            <button id="prev" title="이전 프레임 ←">←</button
+            ><button id="play">▶ 재생</button
+            ><button id="next" title="다음 프레임 →">→</button
+            ><select id="speed" aria-label="재생 배속">
+              <option value="0.25">0.25×</option>
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option></select
+            ><output id="clock"></output
+            ><label class="inline"
+              ><input id="keptOnly" type="checkbox" />선택 구간 이어 보기</label
+            >
+          </div>
+          <input
+            id="seek"
+            type="range"
+            min="0"
+            max="119"
+            value="0"
+            aria-label="영상 탐색"
+          />
+          <div class="row">
+            <h2>Task 타임라인</h2>
+            <span class="muted">회색 = 미지정 · 양끝 드래그 = trim</span
+            ><label class="inline"
+              >확대
+              <input
+                id="zoom"
+                type="range"
+                min="1"
+                max="8"
+                value="1"
+                step="0.5"
+            /></label>
+          </div>
+          <div id="timelineScroll">
+            <div id="timeline">
+              <div id="ticks"></div>
+              <div id="track"></div>
+              <div id="selection"></div>
+              <div id="playhead"></div>
+              <div id="snapGuide" hidden></div>
+            </div>
+          </div>
+          <div class="row">
+            <button id="undo">↶ 되돌리기</button
+            ><button id="redo">↷ 다시 실행</button
+            ><button id="split">현재 프레임에서 분할 · S</button
+            ><span id="selectionText"></span>
+            <span id="snapHint" class="muted"></span>
+          </div>
+          <p class="muted">
+            가까운 경계는 자동 맞춤 · Alt+드래그는 자유 조정 · 드래그 중
+            영상으로 위치 확인
+          </p>
+          <details>
+            <summary>관절·gripper·base 신호 보기</summary>
+            <button id="loadSignals">신호 불러오기</button
+            ><select id="signalKey" aria-label="신호 선택"></select
+            ><canvas id="signals" width="960" height="130"></canvas>
+            <p class="muted">첫 번째 성분 표시 · 누락은 연결하지 않습니다.</p>
+          </details>
+          <div class="row">
+            <h2>Clip 목록</h2>
+            <span id="coverage" class="muted"></span>
+          </div>
+          <div id="clipList"></div>
+        </section>
+        <section class="jobs">
+          <h2>가져오기 · Export 작업</h2>
+          <div id="jobList">작업 없음</div>
+        </section>
+      </main>
+      <aside class="inspector">
+        <h2>선택 구간</h2>
+        <p id="clipMode" class="muted">새 구간</p>
+        <p class="muted">
+          다음 task는 직전 끝점부터 시작합니다. I·시간 입력·드래그로 직접 바꿀
+          수 있습니다.
+        </p>
+        <label
+          >시작 시간 (초)<input
+            id="startSeconds"
+            type="number"
+            min="0"
+            step="0.01"
+            value="0"
+        /></label>
+        <label
+          >끝 시간 (초, 미포함)<input
+            id="endSeconds"
+            type="number"
+            min="0"
+            step="0.01"
+            value="1"
+        /></label>
+        <label
+          >시작 프레임 (포함)<input
+            id="startFrame"
+            type="number"
+            min="0"
+            value="0"
+        /></label>
+        <button id="markIn">현재 위치를 시작으로 · I</button>
+        <label
+          >끝 프레임 (미포함)<input
+            id="endFrame"
+            type="number"
+            min="1"
+            value="1"
+        /></label>
+        <button id="markOut">현재 프레임까지 선택 · O</button>
+        <label
+          >Task 문장<textarea
+            id="task"
+            rows="4"
+            placeholder="예: 오른손으로 상자를 잡는다"
+            list="taskNames"
+          ></textarea>
+        </label>
+        <div
+          id="taskPresets"
+          class="task-presets"
+          role="group"
+          aria-label="Task instruction 후보"
+        ></div>
+        <p class="muted">
+          후보 클릭은 문장 입력만 합니다. 구간 저장은 아래 적용 버튼을 누르세요.
+        </p>
+        <select id="taskReuse" aria-label="기존 task 재사용">
+          <option value="">기존 task 선택…</option>
+        </select>
+        <label class="check"
+          ><input id="newEpisode" type="checkbox" />이 경계에서 새 episode
+          시작</label
+        >
+        <button id="apply" class="primary">새 구간에 task 적용</button
+        ><button id="update">선택 clip 수정</button>
+        <button id="clearClip">clip 선택 해제</button
+        ><button id="exclude" class="danger">선택 구간 라벨 제거 / 제외</button>
+        <hr />
+        <h2>Export</h2>
+        <p class="muted">
+          시간 공백은 별도 episode로 나눕니다. 원본·기존 출력은 덮어쓰지
+          않습니다.
+        </p>
+        <label
+          >새 출력 폴더<input
+            id="exportPath"
+            placeholder="비워두면 작업별 새 폴더 자동 생성"
+        /></label>
+        <button id="export" class="primary">미리보기 후 Export</button>
+      </aside>
+    </div>
+    <div id="toast" role="status" hidden></div>
+  </body>
+</html>

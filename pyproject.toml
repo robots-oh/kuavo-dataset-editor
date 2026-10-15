@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=71"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kuavo-dataset-editor"
+version = "0.1.0"
+description = "Non-destructive video timeline editor for Kuavo ROS1 and LeRobot datasets"
+readme = "README.md"
+keywords = ["robotics", "rosbag", "lerobot", "dataset", "annotation"]
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn>=0.30,<1", "numpy>=2,<3",
+  "Pillow>=10,<13", "pyarrow>=21,<30", "av>=15,<16", "rosbags>=0.11,<0.12"
+]
+
+[project.optional-dependencies]
+desktop = ["PySide6>=6.8,<7"]
+export = ["lerobot[dataset] @ git+https://github.com/huggingface/lerobot.git@d20a4538016d9fe0374a34011aebc1c8cddf3e0d"]
+test = ["pytest>=8", "httpx>=0.27"]
+
+[project.scripts]
+kuavo-dataset-editor = "kuavo_dataset_editor.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+kuavo_dataset_editor = ["static/*", "profiles/*.json"]

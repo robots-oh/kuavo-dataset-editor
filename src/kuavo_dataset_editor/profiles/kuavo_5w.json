@@ -1,0 +1,25 @@
+{
+  "name": "Kuavo 5W arms + Leju claw + optional base",
+  "fps": 30,
+  "clock": "bag_receipt_time",
+  "camera_tolerance_s": 0.08,
+  "state_tolerance_s": 0.10,
+  "command_max_age_s": 1.0,
+  "cameras": {
+    "observation.images.head": "/head_camera/color/image_raw/compressed",
+    "observation.images.left_wrist": "/left_wrist_camera/color/image_raw/compressed",
+    "observation.images.right_wrist": "/right_wrist_camera/color/image_raw/compressed"
+  },
+  "signals": [
+    {"key": "observation.state", "topic": "/sensors_data_raw", "field": "joint_data.joint_q", "slice": [4,18], "size": 14, "unit": "rad", "method": "nearest", "required": true},
+    {"key": "action", "topic": "/kuavo_arm_traj", "field": "position", "size": 14, "scale": 0.017453292519943295, "unit": "rad", "input_unit": "degree", "method": "previous", "required": true},
+    {"key": "observation.gripper", "topic": "/leju_claw_state", "field": "data.position", "names_field": "data.name", "order": ["left_claw", "right_claw"], "size": 2, "scale": 0.01, "unit": "open_fraction_0_closed_1_open", "method": "nearest", "required": false},
+    {"key": "action.gripper", "topic": "/leju_claw_command", "field": "data.position", "names_field": "data.name", "order": ["left_claw", "right_claw"], "size": 2, "scale": 0.01, "unit": "open_fraction_0_closed_1_open", "method": "previous", "required": false},
+    {"key": "action.base", "topic": "/cmd_vel", "fields": ["linear.x", "linear.y", "angular.z"], "size": 3, "unit": "m/s,m/s,rad/s", "method": "previous", "required": false},
+    {"key": "observation.base", "topic": "/odom", "fields": ["pose.pose.position.x", "pose.pose.position.y", "pose.pose.orientation.x", "pose.pose.orientation.y", "pose.pose.orientation.z", "pose.pose.orientation.w"], "size": 6, "unit": "m,m,quaternion_xyzw", "method": "nearest", "required": false}
+  ],
+  "event_topics": ["/tag_detections", "/tf", "/tf_static", "/quest_joystick_data", "/quest_joystick_data_clutch", "/vr_capture/session_event", "/quest3/triger_arm_mode", "/grasp_event", "/cmd_torso_vel", "/torso_open_loop_state"],
+  "tag_id": 7,
+  "tag_size_m": 0.04,
+  "notes": "No idle/failure/A-off removal. Missing optional topic is omitted; missing samples are marked invalid, never filled as valid. Base and gripper use separate named features, not an assumed policy action vector."
+}
