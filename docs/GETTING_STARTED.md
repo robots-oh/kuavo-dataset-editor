@@ -10,13 +10,17 @@
 - Windows/macOS/ARM에 같은 잠금파일이 그대로 설치된다고 보장하지 않는다.
 
 ```bash
-git clone <이 저장소의 GitHub URL> kuavo-dataset-editor
+git clone https://github.com/robots-oh/kuavo-dataset-editor.git
 cd kuavo-dataset-editor
 # 필요한 OS 라이브러리가 없는 새 Ubuntu PC에서만, 내용 확인 후 실행:
 bash tools/install_system_deps.sh
 bash setup.sh
 bash desktop.sh
 ```
+
+소스 저장소는 비공개다. 조직/저장소 접근 권한이 있는 GitHub 계정으로 먼저 로그인한다.
+HTTPS clone에 인증이 필요하면 `gh auth login`과 `gh auth setup-git`을 사용하거나,
+본인이 이미 설정한 GitHub SSH 인증으로 clone한다. 인증정보를 저장소 파일에 넣지 않는다.
 
 `setup.sh`는 프로젝트 안의 `.bootstrap`에 고정 uv를 설치하고 `uv.lock`을 변경하지 않고
 동기화한다. Python 3.12가 없으면 uv가 관리하는 Python을 내려받는다. `.venv`는 그 PC에
