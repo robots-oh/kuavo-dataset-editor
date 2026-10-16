@@ -51,6 +51,18 @@ The combined bounded suite passed 18 tests (one optional Qt check skipped), incl
 the official writer new/append/replace roundtrips. Frontend range/task tests passed.
 The generated site was also viewed in a localhost browser to check the guide layout.
 
+## Illustrated workflow guide (2026-10-16)
+
+Ten actual browser screenshots were captured in an isolated temporary workspace.
+Real head/left-wrist/right-wrist images came from a separate copy of the earlier
+8-second smoke dataset, with user approval to show experiment footage publicly.
+An example labeling workflow and local export were executed only in this copy;
+the active project, original dataset and bag were not edited. Existing-dataset
+write modes and Hub fields were shown as configuration examples, without running
+those mutations or performing a Hub login/upload. Guide instructions are examples,
+not verified semantic labels for the observed robot motion.
+Numbered callouts are rendered separately from the original JPEG captures.
+
 ## Earlier real-data smoke export
 
 Provisional instructions were assigned for pipeline testing, not semantic accuracy:

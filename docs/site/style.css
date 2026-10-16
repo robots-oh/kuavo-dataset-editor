@@ -266,6 +266,49 @@ img {
 .toc a:hover {
   color: var(--accent);
 }
+.guide-shot {
+  display: block;
+  margin: 24px 0 18px;
+}
+.screenshot-link {
+  display: block;
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  border: 1px solid #baccca;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px #163d3412;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.screenshot-link img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.shot-callout {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: #ffdc66;
+  color: #182a3b;
+  border: 2px solid white;
+  box-shadow: 0 1px 7px #0009;
+  font: 800 13px/1 system-ui, sans-serif;
+  pointer-events: none;
+}
+.shot-caption {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  margin: 9px 0;
+}
 footer {
   border-top: 1px solid var(--line);
   margin-top: 60px;

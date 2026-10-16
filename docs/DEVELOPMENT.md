@@ -36,6 +36,16 @@ that sandbox. Never turn a mock test into a real robot-dataset upload.
 README/docs generate the [GitHub Pages site](GITHUB_PAGES.md). `docs` is an
 optional dependency; site generation is not needed to run the editor.
 
+The [visual guide](VISUAL_GUIDE.md) uses actual, unmodified browser JPEG captures
+in `docs/assets/screenshots/`. Numbered markers are HTML/CSS overlays described by
+`callouts.json` (capture width/height and viewport pixel coordinates), not altered
+UI text or fabricated application screens. Keep screenshots and coordinates in
+sync when controls move. The builder copies these assets to the public docs site.
+Use an isolated workspace and copies of sample data; never change a user's active
+labels to obtain a screenshot. Review the images for publication rights, credentials
+and personal paths. Screenshots of real experiment video here were explicitly
+approved for public documentation. No bag or full video file is included.
+
 ## Distribution
 
 `pyproject.toml` plus the committed `uv.lock` define reproducible source-checkout

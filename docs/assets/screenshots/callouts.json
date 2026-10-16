@@ -1,0 +1,266 @@
+{
+  "01-import": {
+    "width": 1280,
+    "height": 720,
+    "points": [
+      {
+        "label": "새 프로젝트",
+        "number": 1,
+        "x": 26,
+        "y": 181.5
+      },
+      {
+        "label": "bag 또는 LeRobot 경로",
+        "number": 2,
+        "x": 26,
+        "y": 307
+      },
+      {
+        "label": "원본 불러오기",
+        "number": 3,
+        "x": 26,
+        "y": 348
+      },
+      {
+        "label": "데모로 연습",
+        "number": 4,
+        "x": 26,
+        "y": 393
+      }
+    ]
+  },
+  "02-attach": {
+    "width": 1280,
+    "height": 720,
+    "points": [
+      {
+        "label": "완료 후 현재 프로젝트에 추가",
+        "number": 1,
+        "x": 279,
+        "y": 582.5
+      }
+    ]
+  },
+  "03-overview": {
+    "width": 1280,
+    "height": 720,
+    "points": [
+      {
+        "label": "원본 episode 선택",
+        "number": 1,
+        "x": 268,
+        "y": 155.5
+      },
+      {
+        "label": "영상 재생·정지",
+        "number": 2,
+        "x": 312,
+        "y": 416.453125
+      },
+      {
+        "label": "영상 탐색",
+        "number": 3,
+        "x": 270,
+        "y": 464.453125
+      },
+      {
+        "label": "task 타임라인",
+        "number": 4,
+        "x": 269,
+        "y": 586.953125
+      }
+    ]
+  },
+  "04-task": {
+    "width": 1280,
+    "height": 720,
+    "points": [
+      {
+        "label": "끝 프레임 입력 또는 O 단축키",
+        "number": 1,
+        "x": 1012,
+        "y": 32.5
+      },
+      {
+        "label": "영어 task 후보 선택",
+        "number": 2,
+        "x": 1012,
+        "y": 257.5
+      },
+      {
+        "label": "task 문장 확인",
+        "number": 3,
+        "x": 1012,
+        "y": 155.5
+      },
+      {
+        "label": "새 구간에 task 적용",
+        "number": 4,
+        "x": 1012,
+        "y": 497.5
+      }
+    ]
+  },
+  "05-next-task": {
+    "width": 1280,
+    "height": 720,
+    "points": [
+      {
+        "label": "직전 task 끝에서 자동 시작",
+        "number": 1,
+        "x": 1012,
+        "y": 242.5
+      },
+      {
+        "label": "다음 종료점만 지정",
+        "number": 2,
+        "x": 1012,
+        "y": 313.5
+      }
+    ]
+  },
+  "06-trim": {
+    "width": 1280,
+    "height": 720,
+    "points": [
+      {
+        "label": "양끝 손잡이 드래그",
+        "number": 1,
+        "x": 523.625,
+        "y": 75.953125
+      },
+      {
+        "label": "현재 위치에서 분할",
+        "number": 2,
+        "x": 468.203125,
+        "y": 173.953125
+      },
+      {
+        "label": "숫자·task 수정 저장",
+        "number": 3,
+        "x": 1012,
+        "y": 505.5
+      },
+      {
+        "label": "선택 구간 라벨 제거",
+        "number": 4,
+        "x": 1012,
+        "y": 595.5
+      }
+    ]
+  },
+  "07-export": {
+    "width": 1280,
+    "height": 720,
+    "points": [
+      {
+        "label": "새 생성·추가·수정 선택",
+        "number": 1,
+        "x": 1012,
+        "y": 289
+      },
+      {
+        "label": "새 dataset 이름",
+        "number": 2,
+        "x": 1012,
+        "y": 357
+      },
+      {
+        "label": "출력 폴더 선택",
+        "number": 3,
+        "x": 1012,
+        "y": 476
+      },
+      {
+        "label": "미리보기 후 Export",
+        "number": 4,
+        "x": 1012,
+        "y": 517
+      }
+    ]
+  },
+  "08-existing": {
+    "width": 1280,
+    "height": 720,
+    "points": [
+      {
+        "label": "기존 dataset 추가 또는 수정 선택",
+        "number": 1,
+        "x": 1012,
+        "y": 173
+      },
+      {
+        "label": "기존 LeRobot 폴더",
+        "number": 2,
+        "x": 1012,
+        "y": 307
+      },
+      {
+        "label": "복구본과 변경 확인",
+        "number": 3,
+        "x": 1012,
+        "y": 355
+      },
+      {
+        "label": "미리보기 확인 후 실행",
+        "number": 4,
+        "x": 1012,
+        "y": 398
+      }
+    ]
+  },
+  "09-completed": {
+    "width": 1280,
+    "height": 720,
+    "points": [
+      {
+        "label": "completed · export 완료",
+        "number": 1,
+        "x": 268,
+        "y": 309.953125
+      },
+      {
+        "label": "완성된 dataset 폴더",
+        "number": 2,
+        "x": 279,
+        "y": 367.953125
+      },
+      {
+        "label": "선택적으로 Hub 업로드 경로에 연결",
+        "number": 3,
+        "x": 279,
+        "y": 400.953125
+      }
+    ]
+  },
+  "10-hub": {
+    "width": 1280,
+    "height": 720,
+    "points": [
+      {
+        "label": "완료된 로컬 dataset 폴더",
+        "number": 1,
+        "x": 1012,
+        "y": 452.5
+      },
+      {
+        "label": "owner/dataset-name 입력",
+        "number": 2,
+        "x": 1012,
+        "y": 523.5
+      },
+      {
+        "label": "새 저장소 비공개 기본값",
+        "number": 3,
+        "x": 1016,
+        "y": 569
+      },
+      {
+        "label": "미리보기만 생성 — 실제 전송은 별도 확인",
+        "number": 4,
+        "x": 1012,
+        "y": 670.5
+      }
+    ]
+  }
+}

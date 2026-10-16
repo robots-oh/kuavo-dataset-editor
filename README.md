@@ -26,6 +26,9 @@ kuavo-dataset-editor/
 
 [Hugging Face 업로드](docs/HUGGING_FACE.md) · [문서 사이트 / GitHub Pages 배포](docs/GITHUB_PAGES.md)
 
+처음 사용한다면 [실제 실행 화면으로 따라 하기](docs/VISUAL_GUIDE.md)를 먼저 보세요.
+화면의 번호와 버튼 이름을 따라 import → task 지정/수정 → Export → 선택적 Hub 공유를 진행할 수 있습니다.
+
 ## 처음 사용하는 사람의 순서
 
 1. 이 저장소를 clone/다운로드하고 `bash setup.sh` → `bash desktop.sh`를 실행한다.

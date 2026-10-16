@@ -1,8 +1,10 @@
 """Generate portable documentation from README/docs (one source of truth)."""
 import argparse
 import html
+import json
 import posixpath
 import re
+import shutil
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -11,6 +13,7 @@ from markdown_it import MarkdownIt
 PAGES = [
     ("README.md", "개요 · Quick start"),
     ("docs/GETTING_STARTED.md", "새 PC 설치·실행"),
+    ("docs/VISUAL_GUIDE.md", "화면으로 따라 하기"),
     ("docs/DATASET_REPOSITORIES.md", "Dataset 생성·추가·수정"),
     ("docs/HUGGING_FACE.md", "Hugging Face 업로드"),
     ("docs/LEROBOT_COMPATIBILITY.md", "LeRobot 버전·업데이트"),
@@ -29,6 +32,11 @@ def build(root, output, repo_url=""):
     output.mkdir(parents=True, exist_ok=True)
     (output / "style.css").write_text((root / "docs/site/style.css").read_text())
     (output / ".nojekyll").write_text("")
+    assets = root / "docs/assets"
+    if assets.exists():
+        shutil.copytree(assets, output / "docs/assets", dirs_exist_ok=True)
+    callout_path = assets / "screenshots/callouts.json"
+    callouts = json.loads(callout_path.read_text()) if callout_path.exists() else {}
     for source, label in PAGES:
         destination = Path(destinations[source])
         def relative(target):
@@ -59,6 +67,28 @@ def build(root, output, repo_url=""):
             return renderer.renderer.renderToken(tokens, idx, options, env)
         renderer.renderer.rules["heading_open"] = heading_open
         renderer.renderer.rules["link_open"] = link_open
+        original_image = renderer.renderer.rules["image"]
+        def guide_image(tokens, idx, options, env):
+            token = tokens[idx]
+            src = token.attrGet("src")
+            shot = callouts.get(Path(src).stem) if "assets/screenshots/" in src else None
+            token.attrSet("loading", "lazy")
+            token.attrSet("decoding", "async")
+            if shot:
+                # Reserve space before lazy images load, so heading links do not jump.
+                token.attrSet("width", str(shot["width"]))
+                token.attrSet("height", str(shot["height"]))
+            image = original_image(tokens, idx, options, env)
+            if not shot:
+                return image
+            markers = "".join(
+                f'<span class="shot-callout" aria-hidden="true" title="{html.escape(p["label"], quote=True)}" '
+                f'style="left:{100*p["x"]/shot["width"]:.3f}%;top:{100*p["y"]/shot["height"]:.3f}%">{p["number"]}</span>'
+                for p in shot["points"])
+            return ('<span class="guide-shot"><a class="screenshot-link" target="_blank" rel="noopener" '
+                    f'href="{html.escape(src, quote=True)}" aria-label="화면 원본 크기로 보기">{image}{markers}</a>'
+                    '<span class="shot-caption">번호는 사용 안내 표시입니다. 이미지를 누르면 실제 화면을 원본 크기로 볼 수 있습니다.</span></span>')
+        renderer.renderer.rules["image"] = guide_image
         content = renderer.render((root / source).read_text())
         nav = "".join(f'<a href="{html.escape(relative(destinations[name]))}"'
                       + (' aria-current="page"' if name == source else '')

@@ -16,7 +16,7 @@ def test_generated_site_links(tmp_path):
     class Links(HTMLParser):
         def __init__(self):
             super().__init__()
-            self.links, self.ids = [], set()
+            self.links, self.ids, self.images = [], set(), []
         def handle_starttag(self, tag, attrs):
             assert tag != 'script'
             attrs = dict(attrs)
@@ -24,12 +24,14 @@ def test_generated_site_links(tmp_path):
                 self.ids.add(attrs['id'])
             if tag == 'a' and 'href' in attrs:
                 self.links.append(attrs['href'])
+            if tag == 'img':
+                self.images.append(attrs['src'])
     parsed = {}
     for page in output.rglob('*.html'):
         parser = Links()
         parser.feed(page.read_text())
         parsed[page] = parser
-    assert len(parsed) == 9
+    assert len(parsed) == len(module.PAGES)
     for page, parser in parsed.items():
         for href in parser.links:
             url = urlsplit(href)
@@ -39,3 +41,8 @@ def test_generated_site_links(tmp_path):
             assert target.is_file(), (page, href)
             if url.fragment:
                 assert unquote(url.fragment) in parsed[target].ids, (page, href)
+        for image in parser.images:
+            assert (page.parent / image).resolve().is_file(), (page, image)
+    guide = output / 'docs/VISUAL_GUIDE.html'
+    assert len(parsed[guide].images) == 10
+    assert 'shot-callout' in guide.read_text()
