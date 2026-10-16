@@ -29,8 +29,17 @@ def main():
     export.add_argument("project")
     export.add_argument("target")
     export.add_argument("--jobs-root", default="workspace/jobs")
+    export.add_argument("--mode", choices=["new", "append", "replace"], default="new")
+    export.add_argument("--repo-name")
+    export.add_argument("--confirm-existing", action="store_true")
+    hub = sub.add_parser("hub", help="Preview or explicitly publish a complete local dataset to Hugging Face")
+    hub.add_argument("path")
+    hub.add_argument("repo_id", help="owner/dataset-name")
+    hub.add_argument("--public", action="store_true", help="New repos only; default private")
+    hub.add_argument("--confirm", action="store_true", help="Publish the displayed plan; otherwise read-only preview")
+    hub.add_argument("--sync-existing", action="store_true", help="Confirm complete snapshot replacement, not remote append")
     args = parser.parse_args()
-    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("HF_HUB_OFFLINE", "0" if args.command == "hub" else "1")
     if args.command == "doctor":
         from .doctor import run
         run(args)
@@ -56,7 +65,15 @@ def main():
         from .jobs import JobManager
         manager = JobManager(Path(args.jobs_root).parent)
         project = json.loads(Path(args.project).read_text())
-        print(json.dumps(manager.start("export", {"project": project, "target": str(Path(args.target).resolve())}), indent=2))
+        print(json.dumps(manager.start("export", {"project": project, "target": str(Path(args.target).resolve()),
+                                                  "options": {"mode": args.mode, "repo_name": args.repo_name,
+                                                              "confirm_existing": args.confirm_existing}}), indent=2))
+    elif args.command == "hub":
+        from .hub import prepare_upload, publish_upload
+        plan = prepare_upload(args.path, args.repo_id, private=not args.public)
+        print(json.dumps(plan, indent=2, ensure_ascii=False), flush=True)
+        if args.confirm:
+            print(json.dumps(publish_upload(plan, confirmed=True, sync_existing=args.sync_existing), indent=2))
 
 
 if __name__ == "__main__":

@@ -7,13 +7,15 @@ EDITOR_VENV_DIR="${EDITOR_VENV_DIR:-$EDITOR_DIR/.venv}"
 EDITOR_WITH_EXPORT=1
 EDITOR_WITH_DESKTOP=1
 EDITOR_WITH_TEST=0
+EDITOR_WITH_DOCS=0
 for arg in "$@"; do
   case "$arg" in
     --minimal) EDITOR_WITH_EXPORT=0; EDITOR_WITH_DESKTOP=0 ;;
     --with-export) EDITOR_WITH_EXPORT=1 ;;
     --with-desktop) EDITOR_WITH_DESKTOP=1 ;;
     --with-test) EDITOR_WITH_TEST=1 ;;
-    *) echo "Usage: bash setup.sh [--minimal] [--with-export] [--with-desktop] [--with-test]" >&2; exit 1 ;;
+    --with-docs) EDITOR_WITH_DOCS=1 ;;
+    *) echo "Usage: bash setup.sh [--minimal] [--with-export] [--with-desktop] [--with-test] [--with-docs]" >&2; exit 1 ;;
   esac
 done
 if [[ -L "$EDITOR_VENV_DIR" || -L "$EDITOR_DIR/.bootstrap" ]]; then
@@ -38,6 +40,7 @@ EDITOR_CHECKS=()
 if [[ "$EDITOR_WITH_DESKTOP" == 1 ]]; then EDITOR_EXTRAS+=(--extra desktop); EDITOR_CHECKS+=(--desktop); fi
 if [[ "$EDITOR_WITH_EXPORT" == 1 ]]; then EDITOR_EXTRAS+=(--extra export); EDITOR_CHECKS+=(--export); fi
 if [[ "$EDITOR_WITH_TEST" == 1 ]]; then EDITOR_EXTRAS+=(--extra test); fi
+if [[ "$EDITOR_WITH_DOCS" == 1 ]]; then EDITOR_EXTRAS+=(--extra docs); fi
 UV_PROJECT_ENVIRONMENT="$EDITOR_VENV_DIR" "$EDITOR_DIR/.bootstrap/bin/uv" sync \
   --project "$EDITOR_DIR" --python 3.12 --locked --no-default-groups "${EDITOR_EXTRAS[@]}"
 # This check must use installed dependencies, not this PC's development checkout.

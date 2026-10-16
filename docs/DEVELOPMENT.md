@@ -3,10 +3,11 @@
 Use a dedicated Python 3.12 environment on Linux x86_64. Do not install into a ROS/Isaac environment.
 
 ```bash
-bash setup.sh --with-test
+bash setup.sh --with-test --with-docs
 PYTHONPATH=src .venv/bin/python -m pytest -q tests
 node tests/test_ranges.mjs
 node tests/test_tasks.mjs
+.venv/bin/python tools/build_docs.py
 ```
 
 The default suite skips the opt-in Qt and official LeRobot export checks. To run
@@ -26,6 +27,14 @@ dead to another server polling the shared workspace.
 `LEROBOT_SOURCE=/absolute/path/to/lerobot/src` selects an existing official source
 checkout. For local development, an ignored `.lerobot-source` symlink is supported.
 Neither that link nor `.venv` belongs in Git or a portable source bundle.
+
+Hub tests replace the entire HfApi boundary with a fake: no account, data upload,
+remote repository creation, or token is needed. API tests use a local TestClient;
+in a restricted execution sandbox allow local threading/sockets or run outside
+that sandbox. Never turn a mock test into a real robot-dataset upload.
+
+README/docs generate the [GitHub Pages site](GITHUB_PAGES.md). `docs` is an
+optional dependency; site generation is not needed to run the editor.
 
 ## Distribution
 

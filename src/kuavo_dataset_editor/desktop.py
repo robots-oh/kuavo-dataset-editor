@@ -165,11 +165,21 @@ def create_window(backend):
                 self.set_path("importPath", path)
 
         def choose_output(self):
+            self.page.runJavaScript("JSON.stringify({mode:document.getElementById('exportMode').value,name:document.getElementById('repoName').value})", self.output_dialog)
+
+        def output_dialog(self, state):
+            choice = json.loads(state) if state else {"mode": "new", "name": ""}
+            if choice["mode"] != "new":
+                path = QFileDialog.getExistingDirectory(self, "추가/수정할 기존 LeRobot dataset 루트 선택")
+                if path:
+                    backend.grant_directory(Path(path).parent)
+                    self.set_path("exportPath", path)
+                return
             parent = QFileDialog.getExistingDirectory(self, "새 데이터셋을 저장할 상위 폴더 선택")
             if not parent:
                 return
             from PySide6.QtWidgets import QInputDialog
-            name, ok = QInputDialog.getText(self, "새 데이터셋 폴더 이름", "폴더 이름", text="edited-dataset")
+            name, ok = QInputDialog.getText(self, "새 데이터셋 폴더 이름", "폴더 이름", text=choice["name"].split("/")[-1] or "edited-dataset")
             if not ok:
                 return
             if not name.strip() or name in (".", "..") or Path(name).name != name:
@@ -180,6 +190,7 @@ def create_window(backend):
                 QMessageBox.information(self, "기존 폴더", "원본 보호를 위해 존재하지 않는 새 폴더를 지정하세요.")
                 return
             backend.grant_directory(parent)
+            self.set_path("repoName", choice["name"] if choice["name"].split("/")[-1] == name else name)
             self.set_path("exportPath", str(target))
 
         def open_workspace(self):

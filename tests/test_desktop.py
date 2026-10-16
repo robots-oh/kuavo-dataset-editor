@@ -1,5 +1,6 @@
 """Light native-host checks; never open or edit the user's real dataset."""
 import os
+import json
 import time
 import urllib.request
 
@@ -47,6 +48,21 @@ def test_native_window_and_backend(tmp_path):
                 break
             time.sleep(0.05)
         assert 4 in result, "Frontend modules and task presets must load in Qt"
+        options = []
+        window.page.runJavaScript("JSON.stringify(Array.from(document.querySelectorAll('#exportMode option')).map(x=>x.value))", options.append)
+        deadline = time.monotonic() + 3
+        while not options and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.02)
+        assert options and json.loads(options[0]) == ['new', 'append', 'replace']
+        hub = []
+        window.page.runJavaScript("JSON.stringify({private:document.getElementById('hubPrivate').checked,button:document.getElementById('hubPlan').textContent})", hub.append)
+        deadline = time.monotonic() + 3
+        while not hub and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.02)
+        assert hub and json.loads(hub[0])['private'] is True
+        assert '미리보기' in json.loads(hub[0])['button']
         window.set_path("importPath", str(selected / "sample.bag"))
         values = []
         window.page.runJavaScript("document.getElementById('importPath').value", values.append)

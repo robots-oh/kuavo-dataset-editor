@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: bash setup.sh --minimal --with-test
+      - run: bash setup.sh --minimal --with-test --with-docs
       - run: .venv/bin/python -m pytest -q tests
       - run: node tests/test_ranges.mjs
       - run: node tests/test_tasks.mjs

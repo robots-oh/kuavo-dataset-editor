@@ -1,4 +1,4 @@
-"""Rebuild edited datasets with the official LeRobot writer, never in-place."""
+"""Official writer with staged new/append/replace publication."""
 import json
 import os
 from copy import deepcopy
@@ -23,7 +23,7 @@ def clean_features(features):
     return result
 
 
-def export_dataset(project, target, job_root, progress):
+def _write_dataset(project, staging, job_root, progress, transaction):
     cache = Path(job_root).resolve() / "hf_cache"
     cache.mkdir(parents=True, exist_ok=True)
     os.environ["HF_HOME"] = str(cache)
@@ -34,19 +34,11 @@ def export_dataset(project, target, job_root, progress):
     plan = compile_selection(project)
     if not plan["runs"]:
         raise EditError("라벨이 있는 구간이 없습니다.")
-    target, job_root = Path(target).resolve(), Path(job_root).resolve()
+    staging, job_root = Path(staging).resolve(), Path(job_root).resolve()
+    settings = transaction.plan
+    append = settings["mode"] == "append"
+    base_frames, base_episodes = settings["existing_frames"], settings["existing_episodes"]
     sources = {s["source_id"]: s for s in project["sources"]}
-    for source in sources.values():
-        original = Path(source.get("original_path", source["path"])).resolve()
-        if target == original or target.is_relative_to(original) or original.is_relative_to(target):
-            raise EditError("출력은 원본 경로와 겹칠 수 없습니다.")
-    if target.exists():
-        raise EditError("기존 출력은 덮어쓰지 않습니다. 새 폴더 이름을 지정하세요.")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    # Same parent filesystem permits atomic publication without copying large videos.
-    staging = target.parent / f".{target.name}.{job_root.name}.partial"
-    if staging.exists():
-        raise EditError(f"미완료 출력이 있습니다. 다른 출력 이름을 사용하세요: {staging}")
     used = {r["source_id"] for r in plan["runs"]}
     adapters = {sid: open_source(sources[sid]) for sid in used}
     time_maps = {sid: np.load(adapter.root / adapter.manifest["time_mapping"], allow_pickle=False)
@@ -59,11 +51,17 @@ def export_dataset(project, target, job_root, progress):
         original = Path(sources[sid].get("original_path", sources[sid]["path"]))
         if expected and expected["method"] == "manifest-size-mtime-sha256" and fingerprint(original) != expected:
             raise EditError(f"원본 파일 목록/크기가 변경되었습니다: {sid}. source를 다시 등록하세요.")
-    writer = backend.create_writer(fps=plan["fps"], features=features, root=staging,
-                                   robot_type=next(iter(sources.values())).get("robot_type"))
-    output_rows, truncations, finished = [], [], 0
+    from .repositories import existing_provenance, preserve_editor_history
+    output_rows = existing_provenance(staging, settings) if append else []
+    truncation_file = staging / "editor/truncation.json"
+    truncations = json.loads(truncation_file.read_text()) if append and truncation_file.exists() else []
+    writer = (backend.resume_writer(staging, settings["repo_id"]) if append else
+              backend.create_writer(fps=plan["fps"], features=features, root=staging,
+                                    robot_type=next(iter(sources.values())).get("robot_type"),
+                                    repo_id=settings["repo_id"]))
+    finished = 0
     try:
-        for out_episode, run in enumerate(plan["runs"]):
+        for out_episode, run in enumerate(plan["runs"], start=base_episodes):
             source = sources[run["source_id"]]
             adapter = adapters[run["source_id"]]
             original_episode = next(e for e in source["episodes"] if e["episode_id"] == run["episode_id"])
@@ -73,13 +71,13 @@ def export_dataset(project, target, job_root, progress):
                                 "terminal_features": "preserved_without_inventing_success"})
             for clip in run["clips"]:
                 for source_frame in range(clip["start_frame"], clip["end_frame"]):
-                    progress(finished / plan["kept_frames"]*0.9, f"episode {out_episode+1}/{plan['num_episodes']} export")
+                    progress(finished / plan["kept_frames"]*0.9, f"추가/선택 episode {out_episode-base_episodes+1}/{plan['num_episodes']} export")
                     frame = adapter.row(run["episode_id"], source_frame)
                     frame["task"] = clip["task"]
                     writer.add_frame(frame)
                     out_frame = source_frame-run["start_frame"]
                     output_rows.append({"episode_index": out_episode, "frame_index": out_frame,
-                                        "index": finished, "source_id": run["source_id"],
+                                        "index": base_frames + finished, "source_id": run["source_id"],
                                         "source_episode": run["episode_id"], "source_frame": source_frame,
                                         "source_time_s": source_frame/plan["fps"], "clip_id": clip["id"],
                                         "task": clip["task"], "split": run["split"]})
@@ -97,41 +95,62 @@ def export_dataset(project, target, job_root, progress):
         write_json(staging / "EDITOR_INCOMPLETE.json", {"job": job_root.name, "frames_added": finished})
         raise
     provenance = staging / "editor"
-    provenance.mkdir()
-    write_json(provenance / "project.json", project)
+    provenance.mkdir(exist_ok=True)
+    if settings["mode"] != "new":
+        preserve_editor_history(transaction.target, staging, job_root.name)
+    write_json(provenance / "project.json", transaction.snapshot)
+    write_json(provenance / "dataset.json", {"name": settings["name"], "repo_id": settings["repo_id"],
+                                            "mode": settings["mode"], "local_only": True})
+    write_json(provenance / "operation.json", {"mode": settings["mode"], "target": str(transaction.target),
+                                               "backup": str(transaction.backup) if settings["mode"] != "new" else None,
+                                               "baseline": settings["baseline"], "job": str(job_root)})
     write_json(provenance / "export_plan.json", plan)
     write_json(provenance / "truncation.json", truncations)
-    pq.write_table(pa.Table.from_pylist(output_rows), provenance / "frame_mapping.parquet")
+    columns = sorted({key for row in output_rows for key in row})
+    pq.write_table(pa.table({key: [row.get(key) for row in output_rows] for key in columns}), provenance / "frame_mapping.parquet")
     # Events remain sparse; an event is copied only where its source time is retained.
-    with (provenance / "events.jsonl").open("w") as output_events:
+    with (provenance / "events.jsonl").open("a" if append else "w") as output_events:
         for sid, adapter in adapters.items():
-            if not isinstance(adapter, CatalogSource) or not adapter.manifest.get("events"):
-                continue
-            event_file = adapter.root / adapter.manifest["events"]
+            if isinstance(adapter, CatalogSource) and adapter.manifest.get("events"):
+                event_file = adapter.root / adapter.manifest["events"]
+                dataset_coordinates = False
+            else:
+                event_file = adapter.root / "editor/events.jsonl"
+                dataset_coordinates = True
+                if not event_file.is_file():
+                    continue
             with event_file.open() as event_stream:
                 for line in event_stream:
                     event = json.loads(line)
-                    t = event["source_time_s"]
-                    for index, run in enumerate(plan["runs"]):
-                        if run["source_id"] == sid and run["start_frame"]/plan["fps"] <= t < run["end_frame"]/plan["fps"]:
+                    t = event["output_time_s"] if dataset_coordinates else event["source_time_s"]
+                    for index, run in enumerate(plan["runs"], start=base_episodes):
+                        if (run["source_id"] == sid and
+                            (not dataset_coordinates or event["episode_index"] == run["episode_id"]) and
+                            run["start_frame"]/plan["fps"] <= t < run["end_frame"]/plan["fps"]):
                             mapped = {**event, "source_id": sid, "episode_index": index,
                                       "output_time_s": t-run["start_frame"]/plan["fps"]}
                             output_events.write(json.dumps(mapped, ensure_ascii=False)+"\n")
     progress(0.94, "작은 round-trip 확인")
-    loaded = backend.load_dataset(staging)
-    if len(loaded) != plan["kept_frames"] or loaded.meta.total_episodes != plan["num_episodes"]:
+    loaded = backend.load_dataset(staging, settings["repo_id"])
+    if len(loaded) != settings["output_frames"] or loaded.meta.total_episodes != settings["output_episodes"]:
         raise RuntimeError("출력 frame/episode 수가 export 계획과 다릅니다.")
     # Sample only first/last, not a second full decoding pass.
-    for index in sorted({0, len(loaded)-1}):
+    for index in sorted({0, len(loaded)-1, max(0, base_frames-1), base_frames}):
         _ = loaded[index]
     write_json(provenance / "report.json", {"status": "complete", "codebase_version": backend.codebase_version,
                                              "backend": backend.describe(),
-                                             "frames": finished, "episodes": plan["num_episodes"],
+                                             "frames": base_frames + finished, "episodes": settings["output_episodes"],
+                                             "frames_added": finished, "mode": settings["mode"],
                                              "round_trip": "official_loader_first_last",
                                              "unlabeled_removed": plan["dropped_frames"],
                                              "originals_preserved": True})
-    if target.exists():
-        raise EditError("출력 폴더가 작업 중 생성되었습니다. 기존 파일은 덮어쓰지 않습니다.")
-    progress(0.99, "완료 결과 게시")
-    staging.rename(target)
-    return {"path": str(target), "frames": finished, "episodes": plan["num_episodes"]}
+    return {"frames": base_frames + finished, "episodes": settings["output_episodes"]}
+
+
+def export_dataset(project, target, job_root, progress, options=None):
+    from .repositories import RepositoryTransaction
+    with RepositoryTransaction(project, target, job_root, options) as transaction:
+        result = _write_dataset(transaction.selection, transaction.staging, job_root, progress, transaction)
+        # The last cancellation point is before the short directory swap.
+        progress(0.99, "완료 결과 게시 (기존 dataset은 복구본으로 보존)")
+        return transaction.publish(result)

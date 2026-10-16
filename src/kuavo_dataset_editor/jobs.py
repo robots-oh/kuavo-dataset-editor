@@ -107,13 +107,28 @@ def worker(directory):
                 result = LeRobotSource(path).descriptor(payload["source_id"])
         elif request["kind"] == "export":
             from .exporter import export_dataset
-            result = export_dataset(payload["project"], payload["target"], directory, progress)
+            result = export_dataset(payload["project"], payload["target"], directory, progress, payload.get("options"))
+            relocation = result.get("source_relocation")
+            if relocation:
+                from .store import Store
+                store = Store(directory.parent.parent)
+                result["relocated_projects"] = store.relocate_sources(
+                    relocation["old_path"], relocation["backup"], relocation["fingerprint"])
+        elif request["kind"] == "hub-plan":
+            from .hub import prepare_upload
+            result = prepare_upload(payload["path"], payload["repo_id"], payload["private"])
+        elif request["kind"] == "hub-upload":
+            from .hub import publish_upload
+            result = publish_upload(payload["plan"], confirmed=payload["confirmed"],
+                                    sync_existing=payload["sync_existing"], progress=progress)
         else:
             raise ValueError("알 수 없는 작업")
         state.update(status="completed", progress=1, result=result,
-                     message="export 완료" if request["kind"] == "export" else "가져오기 완료")
+                     message={"export": "export 완료", "hub-plan": "업로드 미리보기 준비됨 — 아직 전송하지 않았습니다.",
+                              "hub-upload": "Hub 업로드 완료"}.get(request["kind"], "가져오기 완료"))
     except Cancelled:
-        state.update(status="cancelled", message="취소됨. 원본은 변경하지 않았습니다.")
+        state.update(status="cancelled", message="취소됨. 로컬 원본은 변경하지 않았습니다."
+                     + (" Hub 신규 repo가 만들어졌다면 빈 repo가 남을 수 있습니다." if request["kind"] == "hub-upload" else ""))
     except BaseException as exc:
         traceback.print_exc()
         state.update(status="failed", error=str(exc))

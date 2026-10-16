@@ -1,0 +1,41 @@
+import importlib.util
+from html.parser import HTMLParser
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
+
+import pytest
+
+
+def test_generated_site_links(tmp_path):
+    pytest.importorskip('markdown_it')
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location('build_docs', root / 'tools/build_docs.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    output = module.build(root, tmp_path / 'site')
+    class Links(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.links, self.ids = [], set()
+        def handle_starttag(self, tag, attrs):
+            assert tag != 'script'
+            attrs = dict(attrs)
+            if 'id' in attrs:
+                self.ids.add(attrs['id'])
+            if tag == 'a' and 'href' in attrs:
+                self.links.append(attrs['href'])
+    parsed = {}
+    for page in output.rglob('*.html'):
+        parser = Links()
+        parser.feed(page.read_text())
+        parsed[page] = parser
+    assert len(parsed) == 9
+    for page, parser in parsed.items():
+        for href in parser.links:
+            url = urlsplit(href)
+            if url.scheme or url.netloc:
+                continue
+            target = (page.parent / unquote(url.path)).resolve() if url.path else page
+            assert target.is_file(), (page, href)
+            if url.fragment:
+                assert unquote(url.fragment) in parsed[target].ids, (page, href)

@@ -4,6 +4,7 @@ from importlib.metadata import PackageNotFoundError, distribution, version
 import inspect
 import json
 import re
+from pathlib import Path
 
 
 class LeRobotCompatibilityError(RuntimeError):
@@ -53,8 +54,8 @@ class LeRobotBackend:
         if "video_backend" not in self.parameters:
             raise LeRobotCompatibilityError("PyAV backend를 명시할 수 없는 LeRobot API입니다.")
 
-    def create_writer(self, *, fps, features, root, robot_type=None):
-        arguments = dict(repo_id="local/edited_dataset", fps=fps, features=features, root=root, video_backend="pyav")
+    def create_writer(self, *, fps, features, root, robot_type=None, repo_id="local/edited_dataset"):
+        arguments = dict(repo_id=repo_id, fps=fps, features=features, root=root, video_backend="pyav")
         if "robot_type" in self.parameters:
             arguments["robot_type"] = robot_type
         if "encoder_threads" in self.parameters:
@@ -73,8 +74,34 @@ class LeRobotBackend:
         else:
             writer.save_episode()
 
-    def load_dataset(self, root):
-        return self.dataset_class("local/edited_dataset", root=root, video_backend="pyav")
+    def resume_writer(self, root, repo_id):
+        resume = getattr(self.dataset_class, "resume", None)
+        if not callable(resume):
+            raise LeRobotCompatibilityError("이 LeRobot 버전은 resume API가 없습니다. 기본 lock 환경을 사용하세요.")
+        parameters = inspect.signature(resume).parameters
+        arguments = dict(repo_id=repo_id, root=root, video_backend="pyav")
+        info = json.loads((Path(root) / "meta/info.json").read_text())
+        codecs = {feature.get("info", {}).get("video.codec") for feature in info["features"].values()
+                  if feature["dtype"] == "video"}
+        if not codecs:
+            codec = "h264"
+        elif len(codecs) == 1 and next(iter(codecs)) in {"h264", "av1", "hevc"}:
+            codec = {"h264": "h264", "av1": "libsvtav1", "hevc": "hevc"}[next(iter(codecs))]
+        else:
+            raise LeRobotCompatibilityError("기존 영상 codec이 누락되었거나 혼합/미지원 형식입니다. 새 dataset으로 변환 후 추가하세요.")
+        if "rgb_encoder" in parameters and self.encoder_class is not None:
+            arguments["rgb_encoder"] = (self.encoder_class(vcodec=codec, crf=23, preset="veryfast")
+                                         if codec == "h264" else self.encoder_class(vcodec=codec, crf=30))
+        elif "vcodec" in parameters:
+            arguments["vcodec"] = "libx264" if codec == "h264" else codec
+        else:
+            raise LeRobotCompatibilityError("resume API의 codec 설정이 바뀌었습니다. 어댑터 갱신이 필요합니다.")
+        if "encoder_threads" in parameters:
+            arguments["encoder_threads"] = 2
+        return resume(**arguments)
+
+    def load_dataset(self, root, repo_id="local/edited_dataset"):
+        return self.dataset_class(repo_id, root=root, video_backend="pyav")
 
     def describe(self):
         revision = None

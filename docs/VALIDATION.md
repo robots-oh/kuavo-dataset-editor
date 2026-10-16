@@ -24,7 +24,31 @@ development Linux host, not an assertion that every OS/PC has been tested.
 - A real bag imported at 30 FPS was tested through the same export worker used by
   the editor, using a separate test project (the user's existing labels were kept).
 
-## Real-data smoke export
+## Named dataset update smoke checks (2026-10-16)
+
+A disposable synthetic source was exported with a selected repo_id (8 frames),
+appended using the official resume API (12 total frames, original rows/tasks kept),
+then loaded with its original task clips and edited/replaced (10 frames).
+Previous dataset fingerprints matched the saved backups. Source relocation preserved
+saved clips/tasks; interrupted writes preserved the target, and an injected final
+rename failure restored it. A localhost API check verified automatic task import and
+required confirmation. The native Qt check verified all three storage choices.
+These mutation checks used temporary data only, not the user's real dataset.
+
+## Hub publication and documentation checks (2026-10-16)
+
+Four mocked Hub tests covered private-by-default creation, explicit confirmation,
+allowlisted file publication (no editor sidecars, hidden files or symlinks),
+existing snapshot deletion lists, preserving visibility/cards, remote HEAD and
+local-manifest changes, shared write locks, and API payload field filtering.
+No real Hub authentication, repository creation or upload was executed.
+The site builder rendered nine pages from README/docs; internal links and generated
+heading anchors were checked. Pages deployment remains a separate explicit action.
+The combined bounded suite passed 18 tests (one optional Qt check skipped), including
+the official writer new/append/replace roundtrips. Frontend range/task tests passed.
+The generated site was also viewed in a localhost browser to check the guide layout.
+
+## Earlier real-data smoke export
 
 Provisional instructions were assigned for pipeline testing, not semantic accuracy:
 

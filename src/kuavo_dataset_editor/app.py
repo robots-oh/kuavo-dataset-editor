@@ -163,6 +163,9 @@ def create_app(workspace, allowed_roots=()):
             if any(s["source_id"] == source["source_id"] for s in p["sources"]):
                 return p
             p["sources"].append(source)
+            if source["kind"] == "lerobot":
+                from .repositories import with_existing_labels
+                p = with_existing_labels(p, source)
             return store.save(p, body["expected_revision"])
 
     @app.get("/api/projects/{pid}/frame/{sid}/{episode}/{frame}")
@@ -199,11 +202,37 @@ def create_app(workspace, allowed_roots=()):
                 result.append({"frame": frame, "values": {}})
         return result
 
+    def export_request(pid, body):
+        from .repositories import prepare_export, repo_identity
+        project = store.get(pid)
+        mode = body.get("mode", "new")
+        if mode == "new":
+            identity = repo_identity(body.get("repo_name"))
+            target = allowed(body.get("target") or workspace / "exports" / identity["slug"])
+        else:
+            if not body.get("target"):
+                raise EditError("기존 dataset 폴더를 지정하세요.")
+            target = allowed(body["target"])
+            allowed(target.parent)  # Backup/staging directories are siblings, not children.
+        options = {"mode": mode, "repo_name": body.get("repo_name"),
+                   "confirm_existing": body.get("confirm_existing") is True}
+        plan = prepare_export(project, target, options)
+        return project, target, options, plan
+
+    @app.post("/api/projects/{pid}/export-plan")
+    def export_plan(pid: str, body: dict):
+        return export_request(pid, body)[3]
+
     @app.post("/api/projects/{pid}/exports")
     def start_export(pid: str, body: dict):
-        project = store.get(pid)
-        target = allowed(body.get("target") or workspace / "exports" / f"{pid[:8]}-r{project['revision']}-{uuid4().hex[:6]}")
-        return jobs.start("export", {"project": project, "target": str(target)})
+        project, target, options, plan = export_request(pid, body)
+        if body.get("expected_revision", project["revision"]) != project["revision"]:
+            raise EditError("미리보기 후 프로젝트가 변경됐습니다. 다시 확인하세요.")
+        if body.get("expected_baseline", plan["baseline"]) != plan["baseline"]:
+            raise EditError("미리보기 후 기존 dataset이 변경됐습니다. 다시 확인하세요.")
+        if options["mode"] != "new" and not options["confirm_existing"]:
+            raise EditError("기존 dataset 추가/수정 확인에 체크하세요.")
+        return jobs.start("export", {"project": project, "target": str(target), "options": options})
 
     @app.get("/api/jobs")
     def list_jobs():
@@ -217,6 +246,36 @@ def create_app(workspace, allowed_roots=()):
                 job["result"] = {k: v for k, v in job["result"].items() if k in ("source_id", "path", "episodes", "report")}
             result.append(job)
         return result
+
+    @app.post("/api/hub/plans")
+    def hub_plan(body: dict):
+        from .hub import local_snapshot
+        from .repositories import repo_identity
+        path = allowed(body["path"])
+        allowed(path.parent)  # Shared sibling lock with local dataset publication.
+        local_snapshot(path)
+        repo_id = body.get("repo_id", "").strip()
+        if len(repo_id.split("/")) != 2:
+            raise EditError("Hub repo는 owner/dataset-name 형식입니다.")
+        repo_identity(repo_id)
+        # Only these fields are persisted; never accept token / arbitrary payload.
+        return jobs.start("hub-plan", {"path": str(path), "repo_id": repo_id,
+                                     "private": body.get("private", True) is not False})
+
+    @app.post("/api/hub/plans/{jid}/upload")
+    def hub_upload(jid: str, body: dict):
+        with api_lock:
+            job = jobs.get(jid)
+            if job["kind"] != "hub-plan" or job["status"] != "completed":
+                raise EditError("완료된 Hub 미리보기를 선택하세요.")
+            plan = job["result"]
+            allowed(plan["snapshot"]["root"])
+            if body.get("confirmed") is not True or body.get("digest") != plan["digest"]:
+                raise EditError("대상과 공개 범위를 확인한 뒤 업로드하세요.")
+            if plan["exists"] and body.get("sync_existing") is not True:
+                raise EditError("기존 Hub dataset 동기화를 확인하세요.")
+            return jobs.start("hub-upload", {"plan": plan, "confirmed": True,
+                                           "sync_existing": body.get("sync_existing") is True})
 
     @app.post("/api/jobs/{jid}/cancel")
     def cancel(jid: str):

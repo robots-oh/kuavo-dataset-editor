@@ -697,8 +697,72 @@ async function pollJobs() {
           r.className = "result";
           r.textContent = j.result.path;
           el.append(r);
+          if (j.kind === "export") {
+            const use = document.createElement("button");
+            use.textContent = "이 결과를 Hub 업로드 경로로 사용";
+            use.onclick = () => {
+              $("hubPath").value = j.result.path;
+              $("hubPath").focus();
+            };
+            el.append(use);
+          }
+          if (j.result.backup) {
+            const backup = document.createElement("p");
+            backup.textContent = `이전 dataset 복구본: ${j.result.backup}`;
+            el.append(backup);
+            if (j.result.relocated_projects?.includes(project?.project_id)) {
+              const note = document.createElement("p");
+              note.textContent =
+                "이 프로젝트는 편집 원본을 보존하기 위해 복구본을 참조합니다. 미적용 입력을 확인한 뒤 프로젝트를 다시 여세요. 수정된 dataset을 편집하려면 결과 폴더를 새로 불러오세요.";
+              el.append(note);
+            }
+          }
         }
-        if (["queued", "running"].includes(j.status)) {
+        if (j.status === "completed" && j.kind === "hub-plan") {
+          const p = j.result;
+          const summary = document.createElement("p");
+          summary.textContent = `${p.repo_id} · ${p.private ? "비공개" : "공개"} · ${p.exists ? "기존 repo 전체 snapshot 동기화" : "새 repo 생성"}\n${p.snapshot.files.length} files · ${(p.snapshot.bytes / 1024 ** 3).toFixed(2)} GiB · ${p.snapshot.frames} frames\n원격의 오래된 dataset 파일 ${p.delete.length}개 삭제 · 로컬 제외 파일 ${p.snapshot.omitted.length}개`;
+          el.append(summary);
+          const details = document.createElement("details");
+          const heading = document.createElement("summary");
+          heading.textContent = "전송·삭제·제외 파일 목록";
+          const list = document.createElement("pre");
+          list.style.whiteSpace = "pre-wrap";
+          list.textContent = `전송:\n${p.snapshot.files.map((f) => f.name).join("\n")}\n\n원격 삭제:\n${p.delete.join("\n") || "없음"}\n\n로컬 제외:\n${p.snapshot.omitted.join("\n") || "없음"}\n\n원격 보존:\n${p.preserved_remote.join("\n") || "없음"}`;
+          details.append(heading, list);
+          el.append(details);
+          const upload = document.createElement("button");
+          upload.textContent = "대상·공개 범위 확인 후 실제 업로드";
+          upload.onclick = action(async () => {
+            if (
+              !confirm(
+                `${p.url}\n${p.private ? "비공개" : "공개 — 누구나 데이터에 접근할 수 있습니다."}\n${p.snapshot.files.length} files / ${p.snapshot.frames} frames\n\n${p.exists ? `기존 dataset 파일을 로컬 결과와 동기화합니다. ${p.delete.length}개 원격 파일 삭제. 원격 append가 아닙니다.` : "새 dataset 저장소를 생성합니다."}\n원본 bag과 editor/ 이벤트·편집 기록은 제외됩니다.\n영상·데이터 공개 권한을 확인했으며 업로드할까요?`,
+              )
+            )
+              return;
+            upload.disabled = true;
+            try {
+              await api(`/api/hub/plans/${j.id}/upload`, {
+                confirmed: true,
+                sync_existing: p.exists,
+                digest: p.digest,
+              });
+            } finally {
+              upload.disabled = false;
+            }
+            await pollJobs();
+          });
+          el.append(upload);
+        }
+        if (j.status === "completed" && j.kind === "hub-upload") {
+          const result = document.createElement("p");
+          result.textContent = `${j.result.url}\ncommit: ${j.result.commit}\nLeRobot loader에는 revision="${j.result.loader_revision}"을 지정하세요.`;
+          el.append(result);
+        }
+        if (
+          ["queued", "running"].includes(j.status) &&
+          j.kind !== "hub-upload"
+        ) {
           const cancel = document.createElement("button");
           cancel.textContent = "작업 취소";
           cancel.onclick = action(async () => {
@@ -722,19 +786,50 @@ async function pollJobs() {
 }
 async function exportNow() {
   if (!project) throw Error("프로젝트를 먼저 여세요.");
-  const p = await api(`/api/projects/${project.project_id}/plan`);
+  const mode = $("exportMode").value;
+  const body = {
+    mode,
+    repo_name: $("repoName").value.trim(),
+    target: $("exportPath").value.trim() || undefined,
+    confirm_existing: $("confirmExisting").checked,
+  };
+  if (mode === "new" && !body.repo_name)
+    throw Error("새 dataset repo 이름을 입력하세요.");
+  if (mode !== "new" && !body.confirm_existing)
+    throw Error("기존 dataset 변경 확인에 체크하세요.");
+  const p = await api(`/api/projects/${project.project_id}/export-plan`, body);
   if (!p.kept_frames) throw Error("먼저 task가 있는 clip을 만드세요.");
   if (
     !confirm(
-      `포함 ${p.kept_frames} frames (${(p.kept_frames / p.fps).toFixed(2)}초)\n제외 ${p.dropped_frames} frames\n출력 ${p.num_episodes} episodes\n\n현재 저장본 r${p.project_revision}으로 새 데이터셋을 생성할까요?`,
+      `${mode === "new" ? "새 생성" : mode === "append" ? "기존에 추가" : "기존 수정"}: ${p.repo_id}\n${p.target}\n\n현재 선택 ${p.kept_frames} frames (${(p.kept_frames / p.fps).toFixed(2)}초)\n미지정 제외 ${p.dropped_frames} frames\n최종 ${p.output_frames} frames / ${p.output_episodes} episodes\n${mode === "append" ? `기존 ${p.existing_frames} frames는 유지합니다. 중복 구간은 자동 제거하지 않습니다.\n` : ""}${mode !== "new" ? "기존 폴더는 복구본으로 보존합니다.\n" : ""}\n저장본 r${p.project_revision}으로 진행할까요?`,
     )
   )
     return;
   await api(`/api/projects/${project.project_id}/exports`, {
-    target: $("exportPath").value || undefined,
+    ...body,
+    expected_revision: p.project_revision,
+    expected_baseline: p.baseline,
   });
   await pollJobs();
 }
+function updateExportMode() {
+  const mode = $("exportMode").value;
+  $("repoNameLabel").hidden = mode !== "new";
+  $("confirmExistingLabel").hidden = mode === "new";
+  $("confirmExisting").checked = false;
+  $("exportPathLabel").textContent =
+    mode === "new" ? "새 출력 폴더 (선택)" : "기존 LeRobot dataset 폴더 (필수)";
+  $("exportHint").textContent =
+    mode === "new"
+      ? "라벨 구간만 새 dataset으로 저장합니다. Hub에는 업로드하지 않습니다."
+      : mode === "append"
+        ? "기존 모든 episode를 유지하고 현재 라벨 구간을 추가합니다. 복구본을 보존하며, 중복을 자동 제거하지 않습니다."
+        : "수정할 dataset을 원본으로 불러온 뒤 사용하세요. 현재 프로젝트의 라벨 구간만 남긴 결과로 교체하고, 기존 폴더는 복구본으로 보존합니다.";
+}
+$("exportMode").onchange = updateExportMode;
+$("exportPath").addEventListener("input", () => {
+  $("confirmExisting").checked = false;
+});
 async function loadSignals() {
   signalData = await api(
     `/api/projects/${project.project_id}/signals/${sourceId}/${episodeId}`,
@@ -845,6 +940,17 @@ $("split").onclick = action(async () => {
 $("undo").onclick = action(() => history(true));
 $("redo").onclick = action(() => history(false));
 $("export").onclick = action(exportNow);
+$("hubPlan").onclick = action(async () => {
+  if (!$("hubPath").value.trim() || !$("hubRepo").value.trim())
+    throw Error("완료된 dataset 폴더와 owner/dataset-name을 입력하세요.");
+  await api("/api/hub/plans", {
+    path: $("hubPath").value.trim(),
+    repo_id: $("hubRepo").value.trim(),
+    private: $("hubPrivate").checked,
+  });
+  toast("Hub 미리보기 시작. 아래 작업 목록에서 확인 후 업로드하세요.");
+  await pollJobs();
+});
 $("taskReuse").onchange = () => {
   if ($("taskReuse").value)
     $("task").value = project.tasks[$("taskReuse").value];
