@@ -1,5 +1,7 @@
 # Kuavo LeRobot 영상 데이터셋 편집기
 
+[사용 가이드 사이트](https://robots-oh.github.io/kuavo-dataset-editor/) · [소스 저장소 (접근 권한 필요)](https://github.com/robots-oh/kuavo-dataset-editor)
+
 로봇 PC 연결 없이 로컬에서 bag/LeRobot 데이터를 보고, 시간 구간별 task를 입력하고,
 선택한 구간만 LeRobot 데이터셋으로 export하는 로컬 우선 도구다.
 새 dataset 생성·기존 dataset 추가/수정과 선택적인 Hugging Face 업로드를 지원한다.

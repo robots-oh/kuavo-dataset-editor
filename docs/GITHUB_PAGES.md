@@ -1,5 +1,9 @@
 # 문서 사이트 · GitHub Pages
 
+게시 주소: [Kuavo Dataset Editor 가이드](https://robots-oh.github.io/kuavo-dataset-editor/).
+소스는 [robots-oh/kuavo-dataset-editor](https://github.com/robots-oh/kuavo-dataset-editor) 비공개 저장소다.
+**코드는 비공개, 이 문서 사이트는 공개**다. 2026-10-16에 첫 배포와 HTTP 200 응답을 확인했다.
+
 README와 `docs/*.md`가 문서의 단일 원본이다. `tools/build_docs.py`가 공통 메뉴와 목차가 있는
 정적 HTML로 변환한다. 앱 서버나 로봇, 로그인, analytics, 외부 font/CDN은 필요 없다.
 사이트에는 문서만 포함되며 bag·workspace·인증정보는 포함되지 않는다.

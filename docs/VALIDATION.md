@@ -43,7 +43,10 @@ existing snapshot deletion lists, preserving visibility/cards, remote HEAD and
 local-manifest changes, shared write locks, and API payload field filtering.
 No real Hub authentication, repository creation or upload was executed.
 The site builder rendered nine pages from README/docs; internal links and generated
-heading anchors were checked. Pages deployment remains a separate explicit action.
+heading anchors were checked. On 2026-10-16, the private GitHub repository was
+created and pushed, the minimal suite passed on GitHub Actions, and a manually
+triggered Pages build/deployment succeeded. The public documentation URL returned
+HTTP 200; no recordings, project databases or environments were published.
 The combined bounded suite passed 18 tests (one optional Qt check skipped), including
 the official writer new/append/replace roundtrips. Frontend range/task tests passed.
 The generated site was also viewed in a localhost browser to check the guide layout.
