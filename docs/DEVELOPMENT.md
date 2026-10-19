@@ -1,22 +1,22 @@
 # Development
 
-Use a dedicated Python 3.12 environment on Linux x86_64. Do not install into a ROS/Isaac environment.
+Use a dedicated Python 3.12 environment on Linux x86_64 or ARM64. Do not install into a ROS/Isaac environment.
 
 ```bash
 bash setup.sh --with-test --with-docs
-PYTHONPATH=src .venv/bin/python -m pytest -q tests
+bash run.sh python -m pytest -q tests
 node tests/test_ranges.mjs
 node tests/test_tasks.mjs
-.venv/bin/python tools/build_docs.py
+bash run.sh python tools/build_docs.py
 ```
 
 The default suite skips the opt-in Qt and official LeRobot export checks. To run
 those small checks separately:
 
 ```bash
-EDITOR_TEST_EXPORT=1 PYTHONPATH=src .venv/bin/python -m pytest -q tests/test_export.py
+EDITOR_TEST_EXPORT=1 bash run.sh python -m pytest -q tests/test_export.py
 # A GUI session and local sockets are required for this native window test.
-EDITOR_TEST_DESKTOP=1 PYTHONPATH=src .venv/bin/python -m pytest -q tests/test_desktop.py
+EDITOR_TEST_DESKTOP=1 bash run.sh python -m pytest -q tests/test_desktop.py
 ```
 
 GUI/worker smoke tests should use disposable workspaces. Never use an actively
@@ -25,8 +25,8 @@ process namespace: a separate container/sandbox may make a live worker's PID loo
 dead to another server polling the shared workspace.
 
 `LEROBOT_SOURCE=/absolute/path/to/lerobot/src` selects an existing official source
-checkout. For local development, an ignored `.lerobot-source` symlink is supported.
-Neither that link nor `.venv` belongs in Git or a portable source bundle.
+checkout explicitly. Legacy `.lerobot-source` symlinks are not automatically loaded.
+Neither that link, the `.editor-python` runtime selection, nor environments belong in Git or a portable source bundle.
 
 Hub tests replace the entire HfApi boundary with a fake: no account, data upload,
 remote repository creation, or token is needed. API tests use a local TestClient;

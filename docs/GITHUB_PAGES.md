@@ -12,8 +12,8 @@ README와 `docs/*.md`가 문서의 단일 원본이다. `tools/build_docs.py`가
 
 ```bash
 bash setup.sh --with-docs
-.venv/bin/python tools/build_docs.py --output dist/site
-.venv/bin/python -m http.server 8766 --bind 127.0.0.1 --directory dist/site
+bash run.sh python tools/build_docs.py --output dist/site
+bash run.sh python -m http.server 8766 --bind 127.0.0.1 --directory dist/site
 ```
 
 `http://127.0.0.1:8766`을 연다. editor 8765 포트와 별개다.

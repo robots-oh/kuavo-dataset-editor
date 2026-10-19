@@ -52,5 +52,5 @@ def test_generated_site_links(tmp_path):
     assert 'shot-callout' in guide_html
     assert '다른 PC의 브라우저에서 사용하기: SSH 터널' in guide_html
     assert '127.0.0.1:8767:127.0.0.1:8765' in guide_html
-    assert 'ARM64의 LeRobot Export는 아직 지원 검증 전' in guide_html
+    assert 'bash setup.sh --headless' in guide_html
     assert 'mailto:paragon7060@hanyang.ac.kr' in parsed[guide].links

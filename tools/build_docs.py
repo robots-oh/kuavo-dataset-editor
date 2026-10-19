@@ -104,7 +104,7 @@ def build(root, output, repo_url=""):
 <body><a class="skip" href="#content">본문으로 건너뛰기</a>
 <aside class="sidebar"><a class="brand" href="{relative('index.html')}"><span class="mark">K</span><span>KUAVO<small>DATASET EDITOR</small></span></a>
 <p class="eyebrow">USER &amp; DEVELOPER GUIDE</p><nav aria-label="가이드">{nav}</nav>
-<div class="sidebar-note">LOCAL FIRST<br>ROS 설치 · 로봇 연결 불필요<br>Linux x86_64 · Python 3.12</div>{repo_link}
+<div class="sidebar-note">LOCAL FIRST<br>ROS 설치 · 로봇 연결 불필요<br>Linux x86_64 / ARM64 · Python 3.12</div>{repo_link}
 <div class="sidebar-contact" aria-label="문의 이메일"><span>CONTACT</span>
 <a href="mailto:paragon7060@hanyang.ac.kr">paragon7060@hanyang.ac.kr</a></div></aside>
 <div class="page"><header><span>RECORDINGS → LABELED DATASETS</span><span class="badge">LeRobot + ROS1</span></header>

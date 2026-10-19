@@ -19,7 +19,7 @@ jobs:
           python-version: '3.12'
       - run: bash setup.sh --minimal --with-docs
       - name: Render README and guides
-        run: .venv/bin/python tools/build_docs.py --repo-url "https://github.com/${{ github.repository }}"
+        run: bash run.sh python tools/build_docs.py --repo-url "https://github.com/${{ github.repository }}"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

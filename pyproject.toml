@@ -17,7 +17,15 @@ dependencies = [
 
 [project.optional-dependencies]
 desktop = ["PySide6>=6.8,<7"]
-export = ["lerobot[dataset]>=0.6,<1", "torch==2.9.1", "torchvision==0.24.1", "torchcodec==0.8.1"]
+export = [
+  "lerobot[dataset]>=0.6,<1",
+  "torch==2.9.1; platform_machine == 'x86_64'",
+  "torchvision==0.24.1; platform_machine == 'x86_64'",
+  "torchcodec==0.8.1; platform_machine == 'x86_64'",
+  "torch==2.11.0; platform_machine == 'aarch64'",
+  "torchvision==0.26.0; platform_machine == 'aarch64'",
+  "torchcodec==0.11.0; platform_machine == 'aarch64'",
+]
 test = ["pytest>=8", "httpx>=0.27"]
 docs = ["markdown-it-py>=3,<5"]
 
@@ -32,7 +40,7 @@ kuavo_dataset_editor = ["static/*", "profiles/*.json"]
 
 [tool.uv]
 required-version = "==0.13.1"
-environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+environments = ["sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')"]
 
 [tool.uv.sources]
 lerobot = { url = "https://github.com/huggingface/lerobot/archive/d20a4538016d9fe0374a34011aebc1c8cddf3e0d.tar.gz" }

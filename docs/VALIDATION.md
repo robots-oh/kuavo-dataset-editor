@@ -102,3 +102,11 @@ frames were not selected. Full-recording exports must handle their own invalid f
 
 Real recordings, project databases, export outputs, and machine-specific file paths
 are deliberately not published with this record.
+## ARM64 installation and Export
+
+2026-10-19: Linux aarch64, Ubuntu 20.04, glibc 2.31, Python 3.12.15에서
+별도 CPU 환경의 설치와 공식 writer/loader round trip을 확인했다.
+Torch 2.11.0+cpu, torchvision 0.26.0+cpu, torchcodec 0.11.0, 고정 LeRobot 0.6.2 조합이다.
+합성 데이터 20프레임·2개 episode를 H.264로 Export하고 공식 로더로 다시 읽었다.
+실제 annotation이나 원본 bag을 수정하는 테스트는 하지 않았다. 모든 실제 bag의 전체 Export를
+검증했다는 뜻은 아니다. 설치에 sudo/APT 또는 ROS/CUDA 변경은 사용하지 않았다.

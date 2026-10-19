@@ -31,34 +31,21 @@ git clone https://github.com/robots-oh/kuavo-dataset-editor.git
 cd kuavo-dataset-editor
 ```
 
-**Linux x86_64의 새 전용 환경**은 아래처럼 설치한다. Qt 데스크톱 앱 없이 웹 편집·Export 환경만 설치한다.
+**Linux x86_64 또는 ARM64(aarch64)**에서 아래처럼 설치한다. 아키텍처에 맞는 CPU 환경을
+자동 선택하며 Qt 데스크톱 앱 없이 웹 편집·Export 환경을 준비한다.
 
 ```bash
-bash setup.sh --minimal --with-export
+bash setup.sh --headless
 ```
 
 로봇 PC에서는 이 가이드를 위해 시스템 Python, ROS, CUDA/JetPack을 변경하지 않는다.
 `sudo apt install/upgrade/autoremove`를 무조건 실행하지 말고, OS 의존성이 부족한 경우
 변경할 패키지를 먼저 확인한다. 환경 구성의 세부 사항은 [새 PC 설치·실행](GETTING_STARTED.md)을 참고한다.
 
-**ARM64 Up PC 주의:** 현재 `uv.lock`은 x86_64 전용이다. `aarch64`에서 위 `setup.sh`는
-지원 환경 오류가 나며, `--with-export`만 빼도 해결되지 않는다.
-아래는 실패한 설치에서 이미 `.bootstrap/bin/uv`와 Python 3.12 `.venv`가 생성된 경우의
-**임시 편집 전용 경로**다. 잠금파일 기반 설치가 아니며, ARM64의 전체 실행·Export 검증을 완료했다는 뜻이 아니다.
-
-```bash
-.bootstrap/bin/uv pip install \
-  --python .venv/bin/python \
-  --only-binary :all: \
-  -e .
-
-env -u PYTHONPATH -u LEROBOT_SOURCE bash run.sh doctor
-```
-
-이 명령은 프로젝트의 `.venv`에 설치한다. ARM64·Ubuntu 20.04 대상 기본 의존성 계산만 확인했으며,
-실제 PC에서는 `doctor`가 `"status": "ok"`인지 확인한다. 오류가 나면 소스 빌드나
-시스템 패키지 교체로 강제 진행하지 않는다. **ARM64의 LeRobot Export는 아직 지원 검증 전**이다.
-처음부터 ARM64 환경을 준비하거나 Export까지 필요하면 별도 호환성 대응이 필요하다.
+**이전 ARM64 임시 환경에서 Export가 안 됐다면:** 최신 소스로 갱신한 뒤 위의
+`bash setup.sh --headless`를 실행한다. 기존 `.venv`를 삭제하지 않고 별도 환경에 LeRobot을 설치한다.
+annotation이 저장된 workspace는 바꾸지 않는다. 설치 성공 후 같은 workspace로 편집기 서버만
+재시작한다. `bash run.sh doctor --export`로 결과를 확인할 수 있다.
 
 ### B. 서버 PC에서 웹 서버 실행
 
@@ -237,7 +224,8 @@ episode 끝에 도달하면 다른 episode 또는 원본을 선택한다.
 
 ![Hub에 보낼 완료 dataset, 저장소 이름, 비공개 체크와 업로드 미리보기](assets/screenshots/10-hub.jpg)
 
-먼저 같은 PC의 터미널에서 `.venv/bin/hf auth login`으로 로그인한다. UI에 token을 입력하지 않는다.
+먼저 같은 PC의 터미널에서 `"$(dirname "$(bash run.sh --print-python)")/hf" auth login`으로 로그인한다.
+UI에 token을 입력하지 않는다.
 
 1. **완료된 LeRobot 폴더**가 맞는지 확인한다.
 2. **Hub dataset repo**에 본인 또는 조직의 실제 `owner/dataset-name`을 입력한다.

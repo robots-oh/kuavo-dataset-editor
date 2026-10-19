@@ -8,8 +8,8 @@
 편집기를 실행하는 PC에서 저장소 쓰기 권한이 있는 계정으로 실행한다.
 
 ```bash
-.venv/bin/hf auth login
-.venv/bin/hf auth whoami
+"$(dirname "$(bash run.sh --print-python)")/hf" auth login
+"$(dirname "$(bash run.sh --print-python)")/hf" auth whoami
 ```
 
 저장된 Hub 로그인 또는 앱 시작 전 주입한 `HF_TOKEN`을 사용한다. token을 CLI 인자, UI,

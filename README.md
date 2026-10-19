@@ -33,7 +33,7 @@ kuavo-dataset-editor/
 
 ## 처음 사용하는 사람의 순서
 
-1. 이 저장소를 clone/다운로드하고 `bash setup.sh` → `bash desktop.sh`를 실행한다.
+1. clone/다운로드 후 GUI PC는 `bash setup.sh --with-desktop` → `bash desktop.sh`, SSH/ARM64 서버는 `bash setup.sh --headless` → `bash run.sh`를 실행한다.
 2. **파일·폴더에서 선택…** 또는 **SSH에서 불러오기…**로 bag을 고른다. 로컬 선택 후에는 **원본 불러오기**를 누르고, 완료된 import를 프로젝트에 추가한다.
 3. 영상을 보면서 종료점과 task를 적용한다. 다음 task는 직전 끝에서 시작하며, 드래그/시간 입력으로 수정할 수 있다.
 4. Export에서 새 이름 또는 기존 dataset 폴더를 지정한다. 미지정 구간은 제외된다.
@@ -44,22 +44,27 @@ kuavo-dataset-editor/
 
 English: A standalone, local-first ROS1 bag / LeRobot video timeline editor. Import recordings,
 label and trim task intervals, export with official LeRobot writers, optionally sync a complete
-dataset snapshot to Hugging Face. Linux x86_64 / Python 3.12; no ROS installation or robot connection required.
+dataset snapshot to Hugging Face. Linux x86_64 and ARM64 / Python 3.12; no ROS installation or robot connection required.
 
 ## 설치
 
-현재 지원 환경은 Linux x86_64, Python 3.12, CPU PyTorch다. ROS/Isaac용 Python에 설치하지 않는다.
-새 Ubuntu PC의 OS 라이브러리는 `bash tools/install_system_deps.sh`로 명시적으로 준비한다.
-이 폴더에서 다음 명령을 실행하면 잠금파일로 편집기 전용 `.venv`와 필요한 의존성을 생성한다.
+지원 환경은 Linux x86_64 또는 ARM64(aarch64), glibc 2.28 이상, Python 3.12, CPU PyTorch다.
+ROS/Isaac용 Python에 설치하지 않는다. `setup.sh`는 아키텍처·화면 유무를 감지하며
+시스템 패키지나 ROS/CUDA를 설치·갱신하지 않는다. OS 의존성이 부족하면 별도로 확인한다.
+잠금파일로 프로젝트 전용 환경을 만들고, 진단에 성공한 환경만 실행 대상으로 선택한다.
 
 ```bash
 bash setup.sh
 bash desktop.sh
 ```
 
-데스크톱 창이 열린다. 웹 모드는 `bash run.sh` 후 `http://127.0.0.1:8765`를 연다.
+GUI가 있는 x86_64 PC에서는 데스크톱 창을 사용할 수 있다. SSH/ARM64 서버는
+`bash setup.sh --headless` → `bash run.sh` 후 브라우저와 SSH 터널을 사용한다.
 처음 설치에만 인터넷이 필요하며, 편집·bag 읽기·export는 로컬 파일만 사용한다.
-기본 설치에는 desktop과 export가 포함된다. 읽기/UI용 최소 환경만 필요하면 `bash setup.sh --minimal`을 쓴다.
+기본 설치에는 Export가 포함되며, 데스크톱은 GUI가 있는 x86_64에서만 자동 선택된다.
+읽기/UI용 최소 환경은 `bash setup.sh --minimal`, 데스크톱 명시 설치는 `--with-desktop`이다.
+기존 `.venv`와 annotation은 유지한다. 환경은 `.venv-아키텍처-해시`에 분리하며
+`run.sh`가 `.editor-python`의 선택을 사용한다. 새로 설치하려면 `bash setup.sh --headless --fresh`를 쓴다.
 CPU 전용 PyTorch를 먼저 설치하므로 GPU나 CUDA 설치가 필요하지 않다.
 
 ## 별도 데스크톱 앱
@@ -246,8 +251,8 @@ Export 시작 후 계속 편집해도 진행 중인 job의 라벨은 바뀌지 �
 편집기 PC의 터미널에서 한 번 로그인한다. UI, project JSON, job 요청에 token을 입력하지 않는다.
 
 ```bash
-.venv/bin/hf auth login
-.venv/bin/hf auth whoami
+"$(dirname "$(bash run.sh --print-python)")/hf" auth login
+"$(dirname "$(bash run.sh --print-python)")/hf" auth whoami
 ```
 
 완료된 Export 작업의 **이 결과를 Hub 업로드 경로로 사용**을 누르고,
@@ -302,10 +307,9 @@ ssh -N -L 8765:127.0.0.1:8765 <user>@<DEVELOPMENT_PC>
 ## 작은 검증만 수행하기
 
 ```bash
-EDITOR_PYTHON=.venv/bin/python
 bash setup.sh --with-test
-PYTHONPATH=src "$EDITOR_PYTHON" -m pytest -q tests/test_core.py tests/test_bag.py
-EDITOR_TEST_EXPORT=1 PYTHONPATH=src "$EDITOR_PYTHON" -m pytest -q tests/test_export.py
+bash run.sh python -m pytest -q tests/test_core.py tests/test_bag.py
+EDITOR_TEST_EXPORT=1 bash run.sh python -m pytest -q tests/test_export.py
 # 프런트엔드 경계 연산을 개발용 Node가 있을 때 확인 (실행 환경에는 Node 불필요)
 node tests/test_ranges.mjs
 ```

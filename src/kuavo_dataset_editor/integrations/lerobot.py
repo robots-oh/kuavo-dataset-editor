@@ -33,7 +33,9 @@ class LeRobotBackend:
                     encoder_class = importlib.import_module("lerobot.configs").RGBEncoderConfig
             except (ImportError, AttributeError, OSError) as exc:
                 raise LeRobotCompatibilityError(
-                    "LeRobot/영상 라이브러리를 불러올 수 없습니다. bash setup.sh 후 doctor --export를 확인하세요. "
+                    "현재 서버 환경에서 LeRobot/영상 라이브러리를 불러올 수 없습니다. "
+                    "서버 PC에서 bash setup.sh --headless 후 bash run.sh doctor --export를 확인하고 "
+                    "편집기 서버를 재시작하세요. workspace/annotation은 유지됩니다. "
                     f"원인: {exc}"
                 ) from exc
         self.dataset_class = dataset_class

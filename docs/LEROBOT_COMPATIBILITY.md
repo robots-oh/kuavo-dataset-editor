@@ -8,7 +8,8 @@
 upstream 저장소의 개발용 CUDA index 설정을 물려받지 않도록 Git 개발 checkout 대신
 공식 commit 소스 아카이브를 사용하며, CPU torch/torchvision index는 이 패키지가 지정한다.
 
-Torch 2.9.1 / torchvision 0.24.1 / torchcodec 0.8.1은 함께 관리한다. 이것은
+Linux x86_64는 Torch 2.9.1 / torchvision 0.24.1 / torchcodec 0.8.1,
+ARM64는 CPU Torch 2.11.0 / torchvision 0.26.0 / torchcodec 0.11.0을 함께 관리한다. 이것은
 최신 버전을 쓰면 안 된다는 뜻이 아니라, 기본 설치가 예고 없이 바뀌지 않게 하는 것이다.
 
 ## 코드 경계

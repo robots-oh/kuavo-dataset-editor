@@ -1,6 +1,7 @@
 .venv
 .venv-*
 .bootstrap*/
+.editor-python*
 __pycache__/
 *.egg-info/
 .pytest_cache/
