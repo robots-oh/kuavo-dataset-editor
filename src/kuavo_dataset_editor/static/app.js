@@ -1,5 +1,6 @@
 /* No build step, no third-party CDN, no robot commands. */
 import { TASK_PRESETS } from "./tasks.mjs";
+import { setupFilePicker } from "./file-picker.mjs";
 import {
   defaultTaskRange,
   nextTaskRange,
@@ -21,6 +22,7 @@ let undo = [],
   previewBusy = false;
 let signalData = [],
   jobTimer = null;
+let selectedImportPaths = [];
 const colors = [
   "#377b74",
   "#735ca1",
@@ -641,7 +643,12 @@ async function startImport(demo) {
   if (!project) throw Error("프로젝트를 먼저 만드세요.");
   const body = demo
     ? { demo: true }
-    : { path: $("importPath").value, profile: JSON.parse($("profile").value) };
+    : {
+        paths: selectedImportPaths.length
+          ? selectedImportPaths
+          : [$("importPath").value.trim()],
+        profile: JSON.parse($("profile").value),
+      };
   await api(`/api/projects/${project.project_id}/imports`, body);
   toast("가져오기 시작. 아래 작업 목록에서 완료 후 프로젝트에 추가하세요.");
   await pollJobs();
@@ -667,14 +674,34 @@ async function pollJobs() {
           err.textContent = j.error;
           el.append(err);
         }
+        if (j.retryable) {
+          const retry = document.createElement("button");
+          retry.textContent = "중단·실패한 파일 이어가기";
+          retry.onclick = action(async () => {
+            await api(`/api/jobs/${j.id}/retry-import`, {});
+            toast(
+              "완료된 원본은 건너뛰고 남은 파일을 다시 가져옵니다. SSH 임시 파일은 이어받습니다.",
+            );
+            await pollJobs();
+          });
+          el.append(retry);
+        }
+        const imported =
+          j.result?.sources || (j.result?.source_id ? [j.result] : []);
         if (
-          j.status === "completed" &&
-          j.result?.source_id &&
+          ["completed", "cancelled", "failed"].includes(j.status) &&
+          imported.length &&
           project &&
-          !project.sources.some((s) => s.source_id === j.result.source_id)
+          imported.some(
+            (item) =>
+              !project.sources.some((s) => s.source_id === item.source_id),
+          )
         ) {
           const b = document.createElement("button");
-          b.textContent = "현재 프로젝트에 추가";
+          b.textContent =
+            imported.length === 1
+              ? "현재 프로젝트에 추가"
+              : `${imported.length}개 원본을 현재 프로젝트에 추가`;
           b.onclick = action(async () => {
             project = await api(
               `/api/projects/${project.project_id}/attach/${j.id}`,
@@ -682,7 +709,7 @@ async function pollJobs() {
             );
             undo = [];
             redo = [];
-            sourceId = j.result.source_id;
+            sourceId = imported[0].source_id;
             episodeId = source().episodes[0].episode_id;
             frame = 0;
             selected = null;
@@ -691,6 +718,17 @@ async function pollJobs() {
             await pollJobs();
           });
           el.append(b);
+        }
+        for (const failure of j.result?.failures || []) {
+          const failed = document.createElement("p");
+          failed.className = "error";
+          failed.textContent = `${failure.path}: ${failure.error}`;
+          el.append(failed);
+        }
+        for (const download of j.result?.downloads || []) {
+          const info = document.createElement("p");
+          info.textContent = `${download.reused ? "받아둔 파일 재사용" : download.resumed_bytes ? "이어받기 완료" : "다운로드 완료"}: ${download.path}`;
+          el.append(info);
         }
         if (j.status === "completed" && j.result?.path) {
           const r = document.createElement("p");
@@ -891,6 +929,60 @@ $("sourceSplit").onchange = action(() =>
   }),
 );
 $("import").onclick = action(() => startImport(false));
+function selectImportPaths(paths) {
+  if (!Array.isArray(paths)) return;
+  selectedImportPaths = [
+    ...new Set(paths.filter((p) => typeof p === "string" && p.trim())),
+  ];
+  $("importPath").value = selectedImportPaths[0] || "";
+  renderImportPaths();
+}
+function renderImportPaths() {
+  const panel = $("selectedImports");
+  panel.hidden = !selectedImportPaths.length;
+  panel.replaceChildren();
+  if (!selectedImportPaths.length) return;
+  const title = document.createElement("p");
+  title.textContent = `${selectedImportPaths.length}개 선택 · 순차 가져오기`;
+  panel.append(title);
+  for (const path of selectedImportPaths) {
+    const line = document.createElement("div");
+    const name = document.createElement("span");
+    name.textContent = path.split("/").pop();
+    name.title = path;
+    const remove = document.createElement("button");
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", `${name.textContent} 선택 해제`);
+    remove.onclick = () =>
+      selectImportPaths(selectedImportPaths.filter((p) => p !== path));
+    line.append(name, remove);
+    panel.append(line);
+  }
+}
+$("importPath").addEventListener("input", () => {
+  selectedImportPaths = [];
+  renderImportPaths();
+});
+window.addEventListener("editor-import-selection", (event) =>
+  selectImportPaths(event.detail),
+);
+const picker = setupFilePicker({
+  api,
+  notify: toast,
+  onSelect: selectImportPaths,
+  onSSH: async (host, paths) => {
+    if (!project) throw Error("프로젝트를 먼저 여세요.");
+    await api(`/api/projects/${project.project_id}/ssh-imports`, {
+      host,
+      paths,
+      profile: JSON.parse($("profile").value),
+    });
+    toast("SSH 다운로드·순차 가져오기 시작. 아래 작업 목록에서 확인하세요.");
+    await pollJobs();
+  },
+});
+$("browseLocal").onclick = action(() => picker.open("local"));
+$("browseSSH").onclick = action(() => picker.open("ssh"));
 $("demo").onclick = action(() => startImport(true));
 $("prev").onclick = () => seek(frame - 1);
 $("next").onclick = () => seek(frame + 1);
@@ -963,6 +1055,7 @@ $("snapshot").onclick = () => {
 $("loadSignals").onclick = action(loadSignals);
 $("signalKey").onchange = drawSignals;
 document.addEventListener("keydown", (e) => {
+  if ($("filePicker").open) return;
   if (e.target.matches("input,textarea,select") || !episode()) return;
   if (e.code === "Space") {
     e.preventDefault();

@@ -454,6 +454,104 @@ canvas {
 [hidden] {
   display: none !important;
 }
+dialog {
+  width: min(900px, 94vw);
+  max-height: 92vh;
+  overflow: auto;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid #587067;
+  border-radius: 12px;
+  padding: 22px;
+  box-shadow: 0 25px 80px #000b;
+}
+dialog::backdrop {
+  background: #080d15b8;
+}
+.picker-header,
+.picker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.picker-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.picker-footer {
+  position: sticky;
+  bottom: -22px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  padding: 16px 0;
+}
+.picker-footer span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.picker-grow {
+  flex: 1;
+  min-width: 190px;
+}
+.file-entries {
+  max-height: 36vh;
+  min-height: 100px;
+  overflow: auto;
+  margin: 12px 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.file-entry {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.file-entry:last-child {
+  border-bottom: 0;
+}
+.file-entry input {
+  width: auto;
+}
+.file-entry label {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.file-entry button {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.file-entry .muted {
+  font-size: 12px;
+}
+.selected-imports {
+  max-height: 190px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 10px;
+}
+.selected-imports > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 5px 0;
+}
+.selected-imports span {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.selected-imports button {
+  padding: 1px 6px;
+}
 @media (max-width: 1100px) {
   .layout {
     grid-template-columns: 200px minmax(360px, 1fr);

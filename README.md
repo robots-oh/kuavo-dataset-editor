@@ -26,13 +26,15 @@ kuavo-dataset-editor/
 
 [Hugging Face 업로드](docs/HUGGING_FACE.md) · [문서 사이트 / GitHub Pages 배포](docs/GITHUB_PAGES.md)
 
+[폴더에서 여러 bag 선택 · SSH 다운로드/이어받기](docs/DATA_IMPORT.md)
+
 처음 사용한다면 [실제 실행 화면으로 따라 하기](docs/VISUAL_GUIDE.md)를 먼저 보세요.
 화면의 번호와 버튼 이름을 따라 import → task 지정/수정 → Export → 선택적 Hub 공유를 진행할 수 있습니다.
 
 ## 처음 사용하는 사람의 순서
 
 1. 이 저장소를 clone/다운로드하고 `bash setup.sh` → `bash desktop.sh`를 실행한다.
-2. 새 프로젝트에서 bag 또는 기존 LeRobot 폴더를 불러온다. 완료된 import를 프로젝트에 추가한다.
+2. **파일·폴더에서 선택…** 또는 **SSH에서 불러오기…**로 bag을 고른다. 로컬 선택 후에는 **원본 불러오기**를 누르고, 완료된 import를 프로젝트에 추가한다.
 3. 영상을 보면서 종료점과 task를 적용한다. 다음 task는 직전 끝에서 시작하며, 드래그/시간 입력으로 수정할 수 있다.
 4. Export에서 새 이름 또는 기존 dataset 폴더를 지정한다. 미지정 구간은 제외된다.
 5. 로컬 결과를 확인한다. 공유가 필요할 때만 별도의 Hugging Face 업로드 미리보기 → 확인을 실행한다.
@@ -270,7 +272,7 @@ Export 시작 후 계속 편집해도 진행 중인 job의 라벨은 바뀌지 �
 
 가져오기/export는 별도 프로세스다. UI를 닫아도 작업은 계속되고 작업 목록에서 상태와 로그를 볼 수 있다.
 ‘작업 취소’는 다음 처리 단위에서 적용된다. 원본과 완료된 결과는 삭제하지 않는다.
-동시에 여러 파일의 import/export를 시작할 수 있다. 큰 bag 여러 개를 동시에 열면 disk/CPU 사용량이 늘어난다.
+한 번에 고른 여러 파일의 import는 순차 처리한다. 별도 작업을 여러 개 시작하면 동시에 실행될 수 있어 disk/CPU 사용량이 늘어난다.
 CLI export도 UI와 같은 구간 처리 코어를 사용한다.
 
 ```bash

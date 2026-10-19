@@ -20,7 +20,7 @@ def test_legacy_lowercase_constants_are_not_wire_fields():
     assert [name for name, _ in wire] == ['state']
 
 
-def test_ros1_custom_messages_camera_and_missing_tag(tmp_path):
+def make_fixture_bag(tmp_path):
     store = get_typestore(Stores.ROS1_NOETIC)
     store.register(get_types_from_msg("float64[] joint_q\n", "kuavo_msgs/msg/jointData"))
     store.register(get_types_from_msg("std_msgs/Header header\nkuavo_msgs/jointData joint_data\n", "kuavo_msgs/msg/sensorsData"))
@@ -46,6 +46,11 @@ def test_ros1_custom_messages_camera_and_missing_tag(tmp_path):
             for topic, connection in connections.items():
                 msg = sensor if topic == "/sensors_data_raw" else joint if topic == "/kuavo_arm_traj" else image
                 writer.write(connection, stamp, store.serialize_ros1(msg, connection.msgtype))
+    return bag, profile
+
+
+def test_ros1_custom_messages_camera_and_missing_tag(tmp_path):
+    bag, profile = make_fixture_bag(tmp_path)
     before = fingerprint(bag)
     assert inspect_bag(bag)["duration_s"] > 1
     desc = import_bag(bag, tmp_path / "catalog", "bag-source", profile, lambda *_: None)

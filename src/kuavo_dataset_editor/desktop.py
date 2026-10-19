@@ -153,10 +153,15 @@ def create_window(backend):
             self.statusBar().showMessage("경로를 입력했습니다. 화면의 불러오기/Export 버튼으로 진행하세요.")
 
         def choose_bag(self):
-            path, _ = QFileDialog.getOpenFileName(self, "ROS1 bag 선택", "", "ROS1 bag (*.bag)")
-            if path:
+            paths, _ = QFileDialog.getOpenFileNames(self, "ROS1 bag 선택 (여러 개 가능)", "", "ROS1 bag (*.bag)")
+            if paths:
+                self.set_import_paths(paths)
+
+        def set_import_paths(self, paths):
+            for path in paths:
                 backend.grant_directory(Path(path).parent)
-                self.set_path("importPath", path)
+            self.page.runJavaScript("window.dispatchEvent(new CustomEvent('editor-import-selection',{detail:" + json.dumps(paths) + "}));")
+            self.statusBar().showMessage(f"{len(paths)}개 선택했습니다. 화면의 원본 불러오기로 순차 처리하세요.")
 
         def choose_dataset(self):
             path = QFileDialog.getExistingDirectory(self, "LeRobot 데이터셋 루트 선택")

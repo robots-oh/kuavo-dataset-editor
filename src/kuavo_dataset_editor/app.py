@@ -81,6 +81,33 @@ def create_app(workspace, allowed_roots=()):
     def list_projects():
         return [{"project_id": p["project_id"], "name": p["name"], "revision": p["revision"]} for p in store.projects()]
 
+    @app.get("/api/files")
+    def browse_files(path: str | None = None, query: str = "", offset: int = 0):
+        from .file_browser import browse_local
+        return browse_local(roots, path, query[:256], offset)
+
+    @app.get("/api/ssh/hosts")
+    def ssh_hosts():
+        from .ssh_sources import host_aliases
+        return {"hosts": host_aliases()}
+
+    @app.post("/api/ssh/browse")
+    def ssh_browse(body: dict):
+        from .ssh_sources import browse_remote
+        return browse_remote(body.get("host"), body.get("path", "~"), body.get("query", "")[:256], body.get("offset", 0))
+
+    @app.post("/api/projects/{pid}/ssh-imports")
+    def start_ssh_import(pid: str, body: dict):
+        from .ssh_sources import validate_host
+        store.get(pid)
+        host = validate_host(body.get("host"))
+        paths = body.get("paths")
+        if not isinstance(paths, list) or not 1 <= len(paths) <= 100 or any(not isinstance(p, str) or not p.startswith("/") or not p.lower().endswith(".bag") for p in paths):
+            raise EditError("원격 .bag 파일을 1–100개 선택하세요.")
+        return jobs.start("ssh-import", {"host": host, "project_id": pid,
+            "items": [{"source_id": uuid4().hex, "path": p} for p in dict.fromkeys(paths)],
+            "profile": body.get("profile") or config()["bag_profile"]})
+
     @app.post("/api/projects")
     def create(body: dict):
         return store.save(new_project(body.get("name", "새 프로젝트")), -1)
@@ -144,9 +171,18 @@ def create_app(workspace, allowed_roots=()):
         payload = {"source_id": uuid4().hex, "project_id": pid}
         if body.get("demo"):
             return jobs.start("demo", payload)
-        path = allowed(body["path"])
-        if not path.exists():
-            raise EditError("데이터 경로가 없습니다. 경로는 브라우저 PC가 아닌 서버 기준입니다.")
+        paths = body.get("paths", [body.get("path")])
+        if not isinstance(paths, list) or not 1 <= len(paths) <= 100 or any(not isinstance(p, str) or not p.strip() for p in paths):
+            raise EditError("파일 또는 dataset 폴더를 1–100개 선택하세요.")
+        paths = list(dict.fromkeys(allowed(p) for p in paths))
+        for path in paths:
+            if not (path.is_file() and path.suffix.lower() == ".bag" or path.is_dir() and (path / "meta/info.json").is_file()):
+                raise EditError(".bag 파일 또는 LeRobot 루트 폴더를 선택하세요. 경로는 편집기 서버 PC 기준입니다.")
+        if len(paths) > 1:
+            return jobs.start("import-batch", {"project_id": pid,
+                "items": [{"source_id": uuid4().hex, "path": str(p)} for p in paths],
+                "profile": body.get("profile") or config()["bag_profile"]})
+        path = paths[0]
         payload.update(path=str(path), profile=body.get("profile") or config()["bag_profile"])
         return jobs.start("import", payload)
 
@@ -155,17 +191,25 @@ def create_app(workspace, allowed_roots=()):
         with api_lock:
             job = jobs.get(jid)
             request = json.loads((jobs.root / jid / "request.json").read_text())
-            if job["status"] != "completed" or job["kind"] not in ("demo", "import") or request["payload"]["project_id"] != pid:
+            if job["status"] not in ("completed", "cancelled", "failed") or job["kind"] not in ("demo", "import", "import-batch", "ssh-import") or request["payload"]["project_id"] != pid:
                 raise EditError("이 프로젝트의 완료된 import 작업이 아닙니다.")
             p = store.get(pid)
-            source = job["result"]
-            allowed(source["path"])
-            if any(s["source_id"] == source["source_id"] for s in p["sources"]):
+            result = job.get("result", {})
+            sources = result.get("sources", [result] if result.get("source_id") else [])
+            if not sources:
+                raise EditError("아직 프로젝트에 추가할 수 있는 완료된 원본이 없습니다.")
+            changed = False
+            for source in sources:
+                allowed(source["path"])
+                if any(s["source_id"] == source["source_id"] for s in p["sources"]):
+                    continue
+                p["sources"].append(source)
+                if source["kind"] == "lerobot":
+                    from .repositories import with_existing_labels
+                    p = with_existing_labels(p, source)
+                changed = True
+            if not changed:
                 return p
-            p["sources"].append(source)
-            if source["kind"] == "lerobot":
-                from .repositories import with_existing_labels
-                p = with_existing_labels(p, source)
             return store.save(p, body["expected_revision"])
 
     @app.get("/api/projects/{pid}/frame/{sid}/{episode}/{frame}")
@@ -240,12 +284,39 @@ def create_app(workspace, allowed_roots=()):
         for job in jobs.all():
             request = json.loads((jobs.root / job["id"] / "request.json").read_text())
             payload = request["payload"]
+            completed = {s["source_id"] for s in job.get("result", {}).get("sources", [])}
+            job["retryable"] = (job["kind"] in ("import-batch", "ssh-import")
+                and job["status"] in ("completed", "cancelled", "failed")
+                and any(item["source_id"] not in completed for item in payload.get("items", [])))
             job["project_id"] = payload.get("project_id") or payload.get("project", {}).get("project_id")
             if job.get("result", {}).get("source_id"):
                 # Keep polling light; the full catalog is loaded only when attached.
                 job["result"] = {k: v for k, v in job["result"].items() if k in ("source_id", "path", "episodes", "report")}
+            elif "sources" in job.get("result", {}):
+                job["result"]["sources"] = [{k: v for k, v in s.items() if k in ("source_id", "path", "episodes", "report")} for s in job["result"]["sources"]]
             result.append(job)
         return result
+
+    @app.post("/api/jobs/{jid}/retry-import")
+    def retry_import(jid: str):
+        job = jobs.get(jid)
+        if job["kind"] not in ("import-batch", "ssh-import") or job["status"] not in ("completed", "cancelled", "failed"):
+            raise EditError("중단/실패한 여러 파일 가져오기 작업만 이어갈 수 있습니다.")
+        request = json.loads((jobs.root / jid / "request.json").read_text())
+        payload = request["payload"]
+        store.get(payload["project_id"])
+        completed = {s["source_id"] for s in job.get("result", {}).get("sources", [])}
+        items = [item for item in payload["items"] if item["source_id"] not in completed]
+        if not items:
+            raise EditError("모든 파일의 가져오기가 완료됐습니다.")
+        if job["kind"] == "ssh-import":
+            from .ssh_sources import validate_host
+            validate_host(payload["host"])
+        else:
+            for item in items:
+                allowed(item["path"])
+        payload["items"] = [{"path": item["path"], "source_id": uuid4().hex} for item in items]
+        return jobs.start(job["kind"], payload)
 
     @app.post("/api/hub/plans")
     def hub_plan(body: dict):

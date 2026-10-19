@@ -20,6 +20,9 @@
         <button id="newProject">＋ 새 프로젝트</button>
         <h2>원본 데이터</h2>
         <div id="sourceList"></div>
+        <button id="browseLocal">📁 파일·폴더에서 선택…</button>
+        <button id="browseSSH">SSH에서 불러오기…</button>
+        <div id="selectedImports" class="selected-imports" hidden></div>
         <label
           >서버의 데이터 경로<input
             id="importPath"
@@ -254,6 +257,45 @@
         <button id="hubPlan">업로드 미리보기 (전송 안 함)</button>
       </aside>
     </div>
+    <dialog id="filePicker" aria-labelledby="pickerTitle">
+      <div class="picker-header">
+        <h2 id="pickerTitle">파일 선택</h2>
+        <button id="pickerCancel">닫기</button>
+      </div>
+      <p id="pickerHelp"></p>
+      <label id="pickerLocal"
+        >허용된 폴더<select id="pickerRoot"></select
+      ></label>
+      <label id="pickerSSH" hidden
+        >기존 SSH 호스트<select id="pickerHost"></select
+      ></label>
+      <div class="row">
+        <label class="picker-grow">현재 폴더<input id="pickerPath" /></label
+        ><button id="pickerGo">폴더 열기</button
+        ><button id="pickerUp">상위 폴더</button>
+      </div>
+      <div class="row">
+        <label class="picker-grow"
+          >파일명 검색<input
+            id="pickerSearch"
+            placeholder="현재 폴더의 이름으로 검색" /></label
+        ><button id="pickerFind">검색</button>
+      </div>
+      <div class="row">
+        <button id="pickerAll">표시된 파일 모두 선택</button
+        ><button id="pickerNone">선택 해제</button
+        ><button id="pickerDataset" hidden>이 LeRobot 폴더 선택</button>
+      </div>
+      <p id="pickerStatus" role="status"></p>
+      <div id="pickerEntries" class="file-entries"></div>
+      <button id="pickerMore" hidden>더 보기</button>
+      <div class="picker-footer">
+        <span id="pickerCount"></span
+        ><button id="pickerUse" class="primary" disabled>
+          선택한 파일 사용
+        </button>
+      </div>
+    </dialog>
     <div id="toast" role="status" hidden></div>
   </body>
 </html>

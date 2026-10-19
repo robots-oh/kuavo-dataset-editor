@@ -1,5 +1,18 @@
 # Bounded validation record
 
+## Local file picker and SSH bag import (2026-10-19)
+
+Eight bounded tests passed for local folder restrictions/filtering, SSH profile
+inventory and command quoting, remote listing, cancellation/resume/checksums,
+completed-file reuse and version isolation, sequential per-file errors, and a
+small ROS1 bag download→existing importer→project attach roundtrip. The remote
+helper was executed against local temporary fixtures, not a real robot SSH server.
+No original bag or active project was modified. A browser displayed the new local
+folder dialog; completing browser selection could not be verified because the
+browser permission auto-review service repeatedly failed at capacity. Existing
+private-host authentication and the native multiple-file dialog need their first
+check in the user's actual environment; they are not claimed as end-to-end verified.
+
 As of 2026-10-15 (Asia/Seoul):
 
 ## Fresh dependency installation

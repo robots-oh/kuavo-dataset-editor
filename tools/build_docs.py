@@ -13,6 +13,7 @@ from markdown_it import MarkdownIt
 PAGES = [
     ("README.md", "개요 · Quick start"),
     ("docs/GETTING_STARTED.md", "새 PC 설치·실행"),
+    ("docs/DATA_IMPORT.md", "파일 선택 · SSH 가져오기"),
     ("docs/VISUAL_GUIDE.md", "화면으로 따라 하기"),
     ("docs/DATASET_REPOSITORIES.md", "Dataset 생성·추가·수정"),
     ("docs/HUGGING_FACE.md", "Hugging Face 업로드"),

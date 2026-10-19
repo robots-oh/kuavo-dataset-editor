@@ -21,6 +21,8 @@ Explicit local append/replace publishes with a recoverable backup of the old tar
 | `core.py` | Frame intervals, labels, trim/split, gaps, episode/export plan |
 | `store.py` | SQLite project revisions |
 | `sources.py` | Read-only catalog and LeRobot adapters |
+| `file_browser.py`, `static/file-picker.mjs` | Allowed local folders / shared multi-file selection dialog |
+| `ssh_sources.py` | Existing OpenSSH aliases, read-only remote helper, resumable verified local downloads |
 | `bag.py`, `ros1_reader.py` | ROS1 import and manufacturer message compatibility |
 | `profiles/` | Robot-specific topic, units, sampling, feature mappings |
 | `exporter.py` | Official LeRobot writer, new output, provenance, small reload |
@@ -57,5 +59,6 @@ projects between PCs, preserve those paths or re-register the sources.
 - Train/validation/test assignment is by original recording, not arbitrary clips.
 - A policy-specific combined arm/gripper/base vector is a separate training adapter.
 - Hub publication syncs a complete local snapshot, not a remote episode merge; local editor sidecars stay private.
-- Local workers default offline. Only dedicated Hub workers enable network access before importing the SDK.
+- Local editing/import/export defaults offline. Explicit SSH browse/download uses the system SSH client;
+  only dedicated Hub workers enable HF network access before importing that SDK.
 - Depth editing, mixed-FPS auto-resampling, and training are not included.

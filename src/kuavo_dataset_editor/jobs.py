@@ -16,6 +16,41 @@ class Cancelled(Exception):
     pass
 
 
+def import_one(path, directory, source_id, profile, progress):
+    path = Path(path).expanduser().resolve()
+    if path.is_file() and path.suffix.lower() == ".bag":
+        from .bag import import_bag
+        return import_bag(path, directory, source_id, profile, progress)
+    return LeRobotSource(path).descriptor(source_id)
+
+
+def import_many(payload, directory, progress, checkpoint):
+    """Sequential imports/downloads; completed sources survive cancellation."""
+    result = {"sources": [], "failures": [], "downloads": []}
+    for index, item in enumerate(payload["items"]):
+        count = len(payload["items"])
+        progress(index / count, f"{index+1}/{count} · {Path(item['path']).name}")
+        try:
+            path = item["path"]
+            if payload.get("host"):
+                from .ssh_sources import download_bag
+                download = download_bag(payload["host"], path, directory.parent.parent / "downloads",
+                    lambda f, m: progress((index+0.65*f)/count, f"{index+1}/{count} · {m}"))
+                result["downloads"].append(download)
+                path = download["path"]
+            start = 0.65 if payload.get("host") else 0
+            source = import_one(path, directory / item["source_id"], item["source_id"], payload["profile"],
+                lambda f, m: progress((index+start+(1-start)*f)/count, f"{index+1}/{count} · {m}"))
+            result["sources"].append(source)
+        except Cancelled:
+            raise
+        except Exception as exc:
+            traceback.print_exc()
+            result["failures"].append({"path": item["path"], "error": str(exc)})
+        checkpoint(result)
+    return result
+
+
 def atomic_json(path, value):
     path = Path(path)
     temporary = path.with_suffix(".tmp")
@@ -99,12 +134,12 @@ def worker(directory):
         if request["kind"] == "demo":
             result = demo_source(directory / "source", payload["source_id"])
         elif request["kind"] == "import":
-            path = Path(payload["path"]).expanduser().resolve()
-            if path.is_file() and path.suffix == ".bag":
-                from .bag import import_bag
-                result = import_bag(path, directory / "source", payload["source_id"], payload["profile"], progress)
-            else:
-                result = LeRobotSource(path).descriptor(payload["source_id"])
+            result = import_one(payload["path"], directory / "source", payload["source_id"], payload["profile"], progress)
+        elif request["kind"] in ("import-batch", "ssh-import"):
+            def checkpoint(result):
+                state["result"] = result
+                atomic_json(directory / "status.json", state)
+            result = import_many(payload, directory, progress, checkpoint)
         elif request["kind"] == "export":
             from .exporter import export_dataset
             result = export_dataset(payload["project"], payload["target"], directory, progress, payload.get("options"))
@@ -126,6 +161,8 @@ def worker(directory):
         state.update(status="completed", progress=1, result=result,
                      message={"export": "export 완료", "hub-plan": "업로드 미리보기 준비됨 — 아직 전송하지 않았습니다.",
                               "hub-upload": "Hub 업로드 완료"}.get(request["kind"], "가져오기 완료"))
+        if request["kind"] in ("import-batch", "ssh-import"):
+            state["message"] = f"가져오기 처리 완료 · 성공 {len(result['sources'])} / 실패 {len(result['failures'])}"
     except Cancelled:
         state.update(status="cancelled", message="취소됨. 로컬 원본은 변경하지 않았습니다."
                      + (" Hub 신규 repo가 만들어졌다면 빈 repo가 남을 수 있습니다." if request["kind"] == "hub-upload" else ""))
