@@ -296,6 +296,15 @@
         </button>
       </div>
     </dialog>
+    <dialog id="qualityReview" aria-labelledby="qualityTitle">
+      <div class="picker-header"><h2 id="qualityTitle">Export 전 누락 구간 확인</h2><button id="qualityCancel">취소</button></div>
+      <p id="qualitySummary"></p>
+      <p>원본 bag·캐시·annotation은 바꾸지 않습니다. 상태값은 원본 메시지의 기록 시각으로 보간하고, 영상은 합성하지 않고 이전 실제 프레임을 재사용합니다. bag은 현재 profile의 수신 시각 기준이며, 누락 프레임 수와 앞뒤 메시지 시간 간격은 다를 수 있습니다.</p>
+      <p>긴 누락·급격한 동작 구간은 보정의 정확성을 보장할 수 없습니다. 제외를 선택하면 해당 시간의 모든 센서를 함께 제외하고 episode가 나뉠 수 있습니다. 보정 내역은 결과의 editor/quality.json에 저장됩니다.</p>
+      <div class="row"><button id="qualityRepairAll">보정 가능한 구간 모두 선택</button><button id="qualityExcludeAll">모두 제외 선택</button></div>
+      <div class="quality-table-wrap"><table class="quality-table"><thead><tr><th>Bag·센서</th><th>끊긴 구간</th><th>보정 기준</th><th>처리 방법</th></tr></thead><tbody id="qualityRows"></tbody></table></div>
+      <div class="picker-footer"><span id="qualityStatus" role="status"></span><button id="qualityApply" class="primary" disabled>선택 반영·Export 미리보기</button></div>
+    </dialog>
     <div id="toast" role="status" hidden></div>
   </body>
 </html>

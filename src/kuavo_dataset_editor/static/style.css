@@ -577,3 +577,29 @@ dialog::backdrop {
     flex-wrap: wrap;
   }
 }
+#qualityReview {
+  width: min(1180px, 96vw);
+  max-height: 90vh;
+  overflow: auto;
+}
+.quality-table-wrap {
+  overflow-x: auto;
+  margin: 18px 0;
+}
+.quality-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.quality-table th, .quality-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.quality-table select {
+  min-width: 180px;
+}

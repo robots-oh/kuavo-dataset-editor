@@ -37,6 +37,8 @@ kuavo-dataset-editor/
 2. **파일·폴더에서 선택…** 또는 **SSH에서 불러오기…**로 bag을 고른다. 로컬 선택 후에는 **원본 불러오기**를 누르고, 완료된 import를 프로젝트에 추가한다.
 3. 영상을 보면서 종료점과 task를 적용한다. 다음 task는 직전 끝에서 시작하며, 드래그/시간 입력으로 수정할 수 있다.
 4. Export에서 새 이름 또는 기존 dataset 폴더를 지정한다. 미지정 구간은 제외된다.
+   필수 상태값/카메라 누락이 있으면 bag·센서별 프레임 수와 앞뒤 메시지 시간 간격을 먼저 확인하고,
+   상태 보간·이전 명령/영상 재사용 또는 해당 구간 제외를 직접 선택한다. 기본값은 미선택이다.
 5. 로컬 결과를 확인한다. 공유가 필요할 때만 별도의 Hugging Face 업로드 미리보기 → 확인을 실행한다.
 
 여러 bag은 하나의 프로젝트에 차례로 추가하고, 각 원본에 task를 붙인 뒤 한 번 Export한다.
@@ -238,6 +240,8 @@ episode/frame/global index, task 목록과 통계를 새로 작성한다.
 - `events.jsonl`: 선택 구간에 포함된 TF/tag/Quest/세션 이벤트와 출력 시간.
 - `truncation.json`: 편집 때문에 원본 시작/끝이 잘렸는지. 성공/terminal 값은 원본 그대로 보존한다.
 - `report.json`: writer 버전, 출력 수와 작은 loader round-trip 결과.
+- `quality.json`: 누락 구간, 승인한 보정/제외 방법, 원본 이웃 프레임과 메시지 시각.
+  보정한 출력 프레임은 `frame_mapping.parquet`의 `quality/imputed_features`에 표시한다.
 - `dataset.json`, `operation.json`, `history/`: dataset 이름, 저장 방식·복구본, 이전 editor 기록.
 
 Export 시작 후 계속 편집해도 진행 중인 job의 라벨은 바뀌지 않는다.

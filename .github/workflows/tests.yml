@@ -21,3 +21,4 @@ jobs:
       - run: node tests/test_ranges.mjs
       - run: node tests/test_tasks.mjs
       - run: node tests/test_file_picker.mjs
+      - run: node tests/test_quality_review.mjs

@@ -260,6 +260,11 @@ def create_app(workspace, allowed_roots=()):
             allowed(target.parent)  # Backup/staging directories are siblings, not children.
         options = {"mode": mode, "repo_name": body.get("repo_name"),
                    "confirm_existing": body.get("confirm_existing") is True}
+        if body.get('quality') is not None:
+            approval = body['quality']
+            if not isinstance(approval, dict):
+                raise EditError('누락 구간 선택 형식이 잘못됐습니다.')
+            options['quality'] = {key: approval.get(key) for key in ('token', 'decisions')}
         plan = prepare_export(project, target, options)
         return project, target, options, plan
 
@@ -276,6 +281,8 @@ def create_app(workspace, allowed_roots=()):
             raise EditError("미리보기 후 기존 dataset이 변경됐습니다. 다시 확인하세요.")
         if options["mode"] != "new" and not options["confirm_existing"]:
             raise EditError("기존 dataset 추가/수정 확인에 체크하세요.")
+        if not plan['quality']['ready']:
+            raise EditError('먼저 누락 점검에서 각 구간의 보정/제외 여부를 선택하세요. annotation은 변경되지 않았습니다.')
         return jobs.start("export", {"project": project, "target": str(target), "options": options})
 
     @app.get("/api/jobs")

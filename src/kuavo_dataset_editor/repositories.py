@@ -135,6 +135,8 @@ def prepare_export(project, target, options=None):
         raise EditError("알 수 없는 dataset 저장 방식입니다.")
     target = Path(target).expanduser().resolve()
     selection = selected_project(project, target, mode)
+    from .quality import resolve_quality
+    selection, quality = resolve_quality(selection, options.get('quality'))
     plan = compile_selection(selection)
     if not plan["runs"]:
         raise EditError("저장할 라벨 구간이 없습니다. 추가 모드에서는 대상 dataset 자체의 구간은 제외합니다.")
@@ -174,7 +176,7 @@ def prepare_export(project, target, options=None):
         ):
             raise EditError("수정할 dataset을 먼저 이 프로젝트의 원본으로 불러오세요.")
         baseline = fingerprint(target)
-    return {**plan, **identity, "mode": mode, "target": str(target), "baseline": baseline,
+    return {**plan, **identity, "mode": mode, "target": str(target), "baseline": baseline, "quality": quality,
             "existing_frames": base_frames, "existing_episodes": base_episodes,
             "output_frames": base_frames + plan["kept_frames"],
             "output_episodes": base_episodes + plan["num_episodes"]}
@@ -198,7 +200,10 @@ class RepositoryTransaction:
         self.project, self.job_root = project, Path(job_root).resolve()
         self.options = options or {}
         self.plan = prepare_export(project, target, options)
-        self.selection = selected_project(project, target, self.plan["mode"])
+        if not self.plan['quality']['ready']:
+            raise EditError('누락 데이터가 있습니다. 미리보기에서 끊긴 프레임 수와 시간을 확인하고 보정/제외를 선택하세요.')
+        from .quality import selection_with_quality
+        self.selection = selection_with_quality(selected_project(project, target, self.plan["mode"]), self.plan['quality'])
         self.target = Path(self.plan["target"])
         self.staging = self.target.parent / f".{self.target.name}.{self.job_root.name}.partial"
         self.backup = self.target.parent / f".{self.target.name}.backup-{self.job_root.name}"

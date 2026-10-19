@@ -1,6 +1,7 @@
 /* No build step, no third-party CDN, no robot commands. */
 import { TASK_PRESETS } from "./tasks.mjs";
 import { setupFilePicker } from "./file-picker.mjs";
+import { setupQualityReview } from "./quality-review.mjs";
 import {
   defaultTaskRange,
   nextTaskRange,
@@ -822,7 +823,20 @@ async function pollJobs() {
     console.warn(e);
   }
 }
+const reviewQuality = setupQualityReview();
+let exportBusy = false;
 async function exportNow() {
+  if (exportBusy) return;
+  exportBusy = true;
+  $("export").disabled = true;
+  try {
+    await prepareExport();
+  } finally {
+    exportBusy = false;
+    $("export").disabled = false;
+  }
+}
+async function prepareExport() {
   if (!project) throw Error("프로젝트를 먼저 여세요.");
   const mode = $("exportMode").value;
   const body = {
@@ -835,15 +849,25 @@ async function exportNow() {
     throw Error("새 dataset repo 이름을 입력하세요.");
   if (mode !== "new" && !body.confirm_existing)
     throw Error("기존 dataset 변경 확인에 체크하세요.");
-  const p = await api(`/api/projects/${project.project_id}/export-plan`, body);
+  const projectId = project.project_id;
+  toast("선택 구간의 누락 데이터를 확인 중…");
+  let p = await api(`/api/projects/${projectId}/export-plan`, body);
+  if (p.quality?.issues.length) {
+    const approval = await reviewQuality(p.quality);
+    if (!approval) return;
+    if (project.project_id !== projectId) throw Error("프로젝트가 바뀌었습니다. 다시 Export하세요.");
+    body.quality = approval;
+    p = await api(`/api/projects/${projectId}/export-plan`, body);
+  }
   if (!p.kept_frames) throw Error("먼저 task가 있는 clip을 만드세요.");
+  if (project.project_id !== projectId) throw Error("프로젝트가 바뀌었습니다. 다시 Export하세요.");
   if (
     !confirm(
-      `${mode === "new" ? "새 생성" : mode === "append" ? "기존에 추가" : "기존 수정"}: ${p.repo_id}\n${p.target}\n\n현재 선택 ${p.kept_frames} frames (${(p.kept_frames / p.fps).toFixed(2)}초)\n미지정 제외 ${p.dropped_frames} frames\n최종 ${p.output_frames} frames / ${p.output_episodes} episodes\n${mode === "append" ? `기존 ${p.existing_frames} frames는 유지합니다. 중복 구간은 자동 제거하지 않습니다.\n` : ""}${mode !== "new" ? "기존 폴더는 복구본으로 보존합니다.\n" : ""}\n저장본 r${p.project_revision}으로 진행할까요?`,
+      `${mode === "new" ? "새 생성" : mode === "append" ? "기존에 추가" : "기존 수정"}: ${p.repo_id}\n${p.target}\n\n현재 선택 ${p.kept_frames} frames (${(p.kept_frames / p.fps).toFixed(2)}초)\n미지정·승인된 누락 제외 ${p.dropped_frames} frames\n최종 ${p.output_frames} frames / ${p.output_episodes} episodes\n누락 구간 처리 ${p.quality?.issues.length || 0}건 (선택 내역 기록)\n${mode === "append" ? `기존 ${p.existing_frames} frames는 유지합니다. 중복 구간은 자동 제거하지 않습니다.\n` : ""}${mode !== "new" ? "기존 폴더는 복구본으로 보존합니다.\n" : ""}\n저장본 r${p.project_revision}으로 진행할까요?`,
     )
   )
     return;
-  await api(`/api/projects/${project.project_id}/exports`, {
+  await api(`/api/projects/${projectId}/exports`, {
     ...body,
     expected_revision: p.project_revision,
     expected_baseline: p.baseline,
@@ -1055,7 +1079,7 @@ $("snapshot").onclick = () => {
 $("loadSignals").onclick = action(loadSignals);
 $("signalKey").onchange = drawSignals;
 document.addEventListener("keydown", (e) => {
-  if ($("filePicker").open) return;
+  if ($("filePicker").open || $("qualityReview").open) return;
   if (e.target.matches("input,textarea,select") || !episode()) return;
   if (e.code === "Space") {
     e.preventDefault();

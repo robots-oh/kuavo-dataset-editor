@@ -60,6 +60,8 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                     robot_type=next(iter(sources.values())).get("robot_type"),
                                     repo_id=settings["repo_id"]))
     finished = 0
+    from .quality import corrected_row, repair_index
+    repairs = repair_index(settings['quality'])
     try:
         for out_episode, run in enumerate(plan["runs"], start=base_episodes):
             source = sources[run["source_id"]]
@@ -72,7 +74,9 @@ def _write_dataset(project, staging, job_root, progress, transaction):
             for clip in run["clips"]:
                 for source_frame in range(clip["start_frame"], clip["end_frame"]):
                     progress(finished / plan["kept_frames"]*0.9, f"추가/선택 episode {out_episode-base_episodes+1}/{plan['num_episodes']} export")
-                    frame = adapter.row(run["episode_id"], source_frame)
+                    frame_repairs = repairs.get((run['source_id'], run['episode_id'], source_frame), [])
+                    frame = corrected_row(adapter, run['episode_id'], source_frame, frame_repairs,
+                                          time_maps.get(run['source_id']))
                     frame["task"] = clip["task"]
                     writer.add_frame(frame)
                     out_frame = source_frame-run["start_frame"]
@@ -81,6 +85,8 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                         "source_episode": run["episode_id"], "source_frame": source_frame,
                                         "source_time_s": source_frame/plan["fps"], "clip_id": clip["id"],
                                         "task": clip["task"], "split": run["split"]})
+                    if frame_repairs:
+                        output_rows[-1]['quality/imputed_features'] = [item['feature'] for item in frame_repairs]
                     if run["source_id"] in time_maps:
                         times = time_maps[run["source_id"]]
                         output_rows[-1]["source_bag_time_ns"] = int(times["bag_time_ns"][source_frame])
@@ -105,6 +111,7 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                                "backup": str(transaction.backup) if settings["mode"] != "new" else None,
                                                "baseline": settings["baseline"], "job": str(job_root)})
     write_json(provenance / "export_plan.json", plan)
+    write_json(provenance / "quality.json", settings['quality'])
     write_json(provenance / "truncation.json", truncations)
     columns = sorted({key for row in output_rows for key in row})
     pq.write_table(pa.table({key: [row.get(key) for row in output_rows] for key in columns}), provenance / "frame_mapping.parquet")
@@ -143,6 +150,7 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                              "frames_added": finished, "mode": settings["mode"],
                                              "round_trip": "official_loader_first_last",
                                              "unlabeled_removed": plan["dropped_frames"],
+                                             "quality_issues": len(settings['quality']['issues']),
                                              "originals_preserved": True})
     return {"frames": base_frames + finished, "episodes": settings["output_episodes"]}
 

@@ -1,5 +1,16 @@
 # Bounded validation record
 
+## Explicit missing data review before Export
+
+2026-10-19: missing required numeric samples and catalog camera mappings are grouped into
+source/feature/frame ranges. Tests cover actual message-time interpolation, overlapping gap counts,
+preserving measured components, explicit decisions, stale approvals, no extrapolation, and
+export-only exclusion without annotation mutation. The dialog state test checks no default repair,
+explicit bulk selection, unrepairable ranges, cancellation, and clearing old choices.
+On Linux ARM64 a disposable 20-frame/two-episode official writer/loader round trip repaired three
+synthetic missing frames and preserved source files. Imputation provenance was checked.
+Real annotations were inspected read-only; their repairs were not approved or exported automatically.
+
 ## Local file picker and SSH bag import (2026-10-19)
 
 Eight bounded tests passed for local folder restrictions/filtering, SSH profile
