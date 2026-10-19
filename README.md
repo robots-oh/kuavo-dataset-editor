@@ -28,6 +28,9 @@ Export는 episode마다 checkpoint를 남긴다. 중단/취소 후 작업 목록
 완료 영상의 재인코딩 없이 재개한다. 이 기능이 없는 구 버전 job은 새 Export가 필요하며
 기존 annotation은 유지된다. [재개 방법과 속도 개선](docs/DATASET_REPOSITORIES.md#export-속도와-episode-단위-이어가기)
 
+Export의 streaming 큐는 밀려도 frame을 버리지 않고 기다린다. CPU 수에 맞춘 순서 보존
+디코딩 prefetch와 파일 변경을 감지하는 반복 검사 캐시를 사용하며, 카메라별 입력/인코딩 frame 수를 기록한다.
+
 [Hugging Face 업로드](docs/HUGGING_FACE.md) · [문서 사이트 / GitHub Pages 배포](docs/GITHUB_PAGES.md)
 
 [폴더에서 여러 bag 선택 · SSH 다운로드/이어받기](docs/DATA_IMPORT.md)

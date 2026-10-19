@@ -50,7 +50,7 @@ env -u LEROBOT_SOURCE -u PYTHONPATH EDITOR_TEST_EXPORT=1 \
 ## Episode checkpoint contract
 
 The current pinned official `create`/`resume` API supports `streaming_encoding=True`.
-The adapter enables it when available, retains H264 CRF/preset/thread settings and
+The adapter enables it when available, retains H264 CRF/preset settings and
 falls back to the original image-based path when absent. Each output episode is
 saved and finalized, then the next uses a fresh official resume writer. In the
 pinned writer, resume allocates **new** data/video chunk files, rather than appending
@@ -63,3 +63,12 @@ loading and frame/timestamp provenance remain correct. A new upstream version
 must not start overwriting old chunks without updating this checkpoint strategy.
 The resume identity includes backend versions, the frozen project/plan and source
 file identities; a changed environment must not silently reuse incompatible work.
+
+The upstream real-time producer drops frames after a queue timeout. Never use that
+policy for offline export. `integrations/streaming.py` wraps the individual encoder's
+queues with cancellable bounded blocking puts, checks liveness, and verifies the
+actual MP4 frame count before returning an episode to the official writer.
+It does not patch the installed library or globally replace upstream classes.
+When upgrading upstream, also run `test_export_runtime.py` and the official export
+round trip with `EDITOR_EXPORT_ENCODER_QUEUE_FRAMES=1`. If the queue/thread contract
+changes, update this boundary rather than silently falling back to frame dropping.

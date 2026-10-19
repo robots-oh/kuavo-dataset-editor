@@ -1,5 +1,16 @@
 # Bounded validation record
 
+## No-drop streaming and bounded parallel Export (2026-10-19)
+
+Small tests force a producer to wait longer than the official encoder's 0.1-second
+drop timeout, then verify the pending frame arrives in order; cancellation/dead
+encoder cases are also covered. Ordered decode prefetch is bounded and concurrent.
+Cache tests verify reuse, approval isolation and invalidation after numeric/catalog
+changes. `scandir` fingerprints retain the previous file identity ordering.
+The official writer tests (new/append/replace and interrupted-episode resume) pass
+with camera queues limited to one frame; exported camera frame counts equal input
+counts. These are bounded synthetic tests, not a measured speedup on a full bag.
+
 ## Explicit missing data review before Export
 
 2026-10-19: missing required numeric samples and catalog camera mappings are grouped into

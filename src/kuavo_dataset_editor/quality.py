@@ -41,6 +41,11 @@ def _data(adapter, episode):
 
 
 def inspect_quality(project):
+    from .inspection_cache import gap_report
+    return gap_report(project, _inspect_quality)
+
+
+def _inspect_quality(project):
     plan = compile_selection(project)
     sources = {s['source_id']: s for s in project['sources']}
     selected = {}

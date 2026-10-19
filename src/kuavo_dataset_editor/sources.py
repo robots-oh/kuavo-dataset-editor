@@ -2,6 +2,7 @@
 import hashlib
 import io
 import json
+import os
 import threading
 from functools import lru_cache
 from pathlib import Path
@@ -17,14 +18,41 @@ def write_json(path, data):
     Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def file_stamp(path):
+    stat = Path(path).stat()
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+
+@lru_cache(maxsize=16)
+def _catalog_json(path, stamp):
+    return json.loads(Path(path).read_text())
+
+
+def catalog_json(root):
+    path = Path(root) / 'catalog.json'
+    return _catalog_json(str(path), file_stamp(path))
+
+
 def fingerprint(path):
     """Manifest identity: sorted relative file name, size and mtime, not a content checksum."""
     p = Path(path)
-    files = [p] if p.is_file() else sorted(x for x in p.rglob("*") if x.is_file())
     h = hashlib.sha256()
-    for f in files:
-        st = f.stat()
-        h.update(f"{f.relative_to(p) if f != p else f.name}:{st.st_size}:{st.st_mtime_ns}\n".encode())
+    if p.is_file():
+        st = p.stat()
+        h.update(f'{p.name}:{st.st_size}:{st.st_mtime_ns}\n'.encode())
+    else:
+        entries = []
+        def scan(directory, prefix=''):
+            with os.scandir(directory) as items:
+                for item in items:
+                    name = prefix + item.name
+                    if item.is_dir(follow_symlinks=False):
+                        scan(item.path, name + '/')
+                    elif item.is_file():
+                        entries.append((name, item.stat()))
+        scan(p)
+        for name, st in sorted(entries, key=lambda entry: tuple(entry[0].split('/'))):
+            h.update(f'{name}:{st.st_size}:{st.st_mtime_ns}\n'.encode())
     return {"method": "manifest-size-mtime-sha256", "value": h.hexdigest()}
 
 
@@ -132,14 +160,15 @@ class LeRobotSource:
 class CatalogSource:
     def __init__(self, root):
         self.root = Path(root).resolve()
-        self.manifest = json.loads((self.root / "catalog.json").read_text())
+        self.manifest = catalog_json(self.root)
         self.features = self.manifest["features"]
         self.cameras = self.manifest["cameras"]
         self.arrays = {k: np.load(self.root / v, mmap_mode="r", allow_pickle=False)
                        for k, v in self.manifest.get("arrays", {}).items()}
 
     def descriptor(self, sid):
-        return {**self.manifest, "source_id": sid, "kind": "catalog", "path": str(self.root)}
+        from copy import deepcopy
+        return {**deepcopy(self.manifest), "source_id": sid, "kind": "catalog", "path": str(self.root)}
 
     def row(self, episode_id, frame, cameras=True, camera_key=None, validate=True):
         if episode_id != 0 or not 0 <= frame < self.manifest["episodes"][0]["num_frames"]:
@@ -153,7 +182,8 @@ class CatalogSource:
                     relative = self.manifest["images"][key][frame]
                     if relative is None:
                         raise ValueError(f"{key} frame {frame}: 영상 누락. 해당 구간 제외 또는 입력 profile을 확인하세요.")
-                    result[key] = np.array(Image.open(_safe_child(self.root, relative)).convert("RGB"))
+                    with Image.open(_safe_child(self.root, relative)) as image:
+                        result[key] = np.array(image.convert('RGB'))
             else:
                 value = np.asarray(self.arrays[key][frame]).reshape(ft["shape"])
                 if validate and np.issubdtype(value.dtype, np.number) and not np.isfinite(value).all():

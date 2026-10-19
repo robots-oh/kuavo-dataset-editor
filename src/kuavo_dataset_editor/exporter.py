@@ -58,7 +58,11 @@ def _write_dataset(project, staging, job_root, progress, transaction):
             raise EditError(f"원본 파일 목록/크기가 변경되었습니다: {sid}. source를 다시 등록하세요.")
     from .repositories import existing_provenance, preserve_editor_history
     from .checkpoints import EpisodeCheckpoint
+    from .export_runtime import ExportRuntime, prefetch_ordered
+    runtime = ExportRuntime.choose(features)
+    backend.runtime = runtime
     checkpoint = EpisodeCheckpoint(staging, job_root, {
+        'pipeline': 2,
         'project': transaction.project, 'settings': settings, 'backend': backend.describe(),
         'sources': {sid: fingerprint(adapter.root) for sid, adapter in adapters.items()}})
     restored = checkpoint.restore()
@@ -74,6 +78,10 @@ def _write_dataset(project, staging, job_root, progress, transaction):
              f"완료 episode {completed}/{plan['num_episodes']} 재사용; 다음 episode부터 처리")
     from .quality import corrected_row, repair_index
     repairs = repair_index(settings['quality'])
+    active_message = '프레임 준비/encoder 처리 중 (누락 없이 대기)'
+    def heartbeat():
+        progress(finished / plan['kept_frames'] * 0.9, active_message)
+    backend.heartbeat = heartbeat
     writer = None
     try:
         for out_episode, run in enumerate(plan["runs"], start=base_episodes):
@@ -88,17 +96,24 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                             repo_id=settings['repo_id']))
             source = sources[run["source_id"]]
             adapter = adapters[run["source_id"]]
+            active_message = f"추가/선택 episode {out_episode-base_episodes+1}/{plan['num_episodes']} export"
             original_episode = next(e for e in source["episodes"] if e["episode_id"] == run["episode_id"])
             truncations.append({"episode_index": out_episode,
                                 "start_trimmed": run["start_frame"] != 0,
                                 "end_trimmed": run["end_frame"] != original_episode["num_frames"],
                                 "terminal_features": "preserved_without_inventing_success"})
-            for clip in run["clips"]:
-                for source_frame in range(clip["start_frame"], clip["end_frame"]):
-                    progress(finished / plan["kept_frames"]*0.9, f"추가/선택 episode {out_episode-base_episodes+1}/{plan['num_episodes']} export")
+            requests = ((clip, source_frame) for clip in run['clips']
+                        for source_frame in range(clip['start_frame'], clip['end_frame']))
+            def read_frame(request):
+                _, source_frame = request
+                fixes = repairs.get((run['source_id'], run['episode_id'], source_frame), [])
+                return corrected_row(adapter, run['episode_id'], source_frame, fixes,
+                                     time_maps.get(run['source_id']))
+            from contextlib import closing
+            with closing(prefetch_ordered(requests, read_frame, runtime, heartbeat)) as decoded:
+                for (clip, source_frame), frame in decoded:
+                    heartbeat()
                     frame_repairs = repairs.get((run['source_id'], run['episode_id'], source_frame), [])
-                    frame = corrected_row(adapter, run['episode_id'], source_frame, frame_repairs,
-                                          time_maps.get(run['source_id']))
                     frame["task"] = clip["task"]
                     writer.add_frame(frame)
                     out_frame = source_frame-run["start_frame"]
@@ -117,14 +132,16 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                 output_rows[-1]["source/"+key] = int(times[key][source_frame])
                     finished += 1
             frames_done = time.monotonic()
+            active_message = f"episode {out_episode-base_episodes+1}/{plan['num_episodes']} 영상/metadata 마감 중"
             progress(finished / plan['kept_frames'] * 0.9,
-                     f"episode {out_episode-base_episodes+1}/{plan['num_episodes']} 영상/metadata 마감 중")
+                     active_message)
             backend.save_episode(writer)
             writer.finalize()
             completed += 1
             finalized = time.monotonic()
             timings.append({'episode': out_episode, 'frames_seconds': frames_done-episode_start,
-                            'save_seconds': finalized-frames_done})
+                            'save_seconds': finalized-frames_done,
+                            'video_frames': backend.video_counts(writer)})
             checkpoint.save(completed, finished, output_rows, truncations, timings)
             progress(finished / plan['kept_frames'] * 0.9,
                      f"완료 episode {completed}/{plan['num_episodes']} checkpoint 저장됨")
@@ -193,6 +210,8 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                              "frames": base_frames + finished, "episodes": settings["output_episodes"],
                                              "frames_added": finished, "mode": settings["mode"],
                                              "episode_timings": timings,
+                                             "export_runtime": runtime.describe(),
+                                             "frame_drop_policy": "block_until_encoded",
                                              "round_trip": "official_loader_first_last",
                                              "unlabeled_removed": plan["dropped_frames"],
                                              "quality_issues": len(settings['quality']['issues']),

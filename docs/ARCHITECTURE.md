@@ -28,9 +28,12 @@ Explicit local append/replace publishes with a recoverable backup of the old tar
 | `bag.py`, `ros1_reader.py` | ROS1 import and manufacturer message compatibility |
 | `profiles/` | Robot-specific topic, units, sampling, feature mappings |
 | `exporter.py` | Official LeRobot writer, new output, provenance, small reload |
+| `export_runtime.py` | CPU-aware bounded ordered decode prefetch and encoder queue/thread settings |
+| `inspection_cache.py` | Bounded process-local gap report cache with current file stamp invalidation; never caches consent |
 | `repositories.py` | Named local datasets, append/replace preflight and backup publication |
 | `hub.py` | Explicit Hub preview/publication, canonical file allowlist, remote HEAD guard |
 | `integrations/lerobot.py` | Upstream writer/loader capability adapter and version provenance |
+| `integrations/streaming.py` | Instance-local blocking queues and input/encoded video frame-count equality |
 | `doctor.py` | Installed dependency checks and optional disposable export smoke |
 | `jobs.py` | Isolated import/export/Hub workers and durable logs/status |
 | `app.py`, `static/` | Shared editing UI and local API |

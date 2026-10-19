@@ -106,9 +106,43 @@ bash run.sh resume-export <job-id> --workspace /data/editor-workspace
 
 영상은 공식 streaming encoder API가 있으면 RGB → H264로 직접 인코딩하여 임시 PNG 저장/재읽기를 생략한다.
 timestamp NPZ도 프레임마다 압축 해제하지 않고 한 번 읽어 사용한다. H264의 CRF 23/veryfast,
-encoder threads 2, 해상도, FPS는 유지한다(구 API는 기존 인코딩 경로로 호환).
+해상도, FPS는 유지한다(구 API는 기존 인코딩 경로로 호환).
 `editor/report.json`의 `episode_timings`에는 frame 처리와 episode 마감 시간이 남는다.
 이는 실제 데이터·CPU·저장장치에 따라 달라지므로 일정한 배속 향상을 보장하지 않는다.
 추가 모드의 최초 전체 dataset 복사와 마지막 게시/작은 로더 확인 시간은 별도다.
 기존 dataset 폴더를 복구본으로 교환하던 아주 짧은 게시 단계 자체가 강제 종료된 경우에는
 `publication.json`, partial/backup과 원래 경로를 확인한 뒤 복구해야 한다. 임의로 lock/backup을 삭제하지 않는다.
+
+### 프레임 누락 없는 bounded 병렬 처리
+
+공식 실시간 streaming encoder는 큐가 밀리면 프레임을 버릴 수 있으므로, 이 편집기는
+**인스턴스 단위 backpressure 어댑터**를 사용한다. 큐가 가득 차면 공간이 날 때까지 기다리며
+취소 요청과 encoder 종료를 확인한다. 설치된 LeRobot 소스를 수정하거나 전역 monkey patch하지 않는다.
+episode마다 카메라별 입력 frame 수와 실제 MP4 frame 수가 일치해야 checkpoint로 마감한다.
+이 문서에서 lossless는 **frame drop이 없음**을 뜻하며, H264 자체가 무손실 codec이라는 뜻은 아니다.
+
+- JPEG 디코딩은 여러 스레드로 미리 준비하지만 결과는 원래 frame/task 순서대로 writer에 전달한다.
+  metadata writer는 하나이므로 episode/task 순서가 바뀌지 않는다.
+- 기본 CPU 작업 예산은 사용 가능한 CPU의 절반(최대 8)이며, 디코딩/카메라 인코딩에 분배한다.
+  이는 스레드 구성의 기준이지 OS 수준 CPU 사용량 제한이나 로봇 제어용 CPU 예약은 아니다.
+- 기본 prefetch는 디코딩된 RGB 약 64 MiB, 카메라 큐 합계 약 48 MiB를 기준으로 제한한다.
+  한 프레임 자체가 이보다 큰 경우 최소 한 프레임은 필요하며, 라이브러리 내부 메모리는 별도다.
+- 반복 미리보기의 누락 보고서와 catalog JSON은 프로세스 내에서 제한적으로 캐싱한다.
+  catalog·수치 배열·timestamp 또는 LeRobot metadata/parquet의 현재 파일 식별자·크기·mtime/ctime이
+  달라지면 다시 검사한다. 보정/제외 **승인 자체는 캐싱하지 않는다**. 새 worker는 새로 검사한다.
+  파일 트리 identity는 디렉터리 mtime만 믿고 생략하지 않고, `scandir`로 syscall 중복을 줄인다.
+
+필요할 때만 서버 시작 전 아래 환경 변수로 조정한다. 기본값부터 사용하고 실제 report를 비교한다.
+
+```bash
+EDITOR_EXPORT_CPU_BUDGET=6 \
+EDITOR_EXPORT_DECODE_WORKERS=2 \
+EDITOR_EXPORT_ENCODER_THREADS=1 \
+EDITOR_EXPORT_PREFETCH_FRAMES=4 \
+bash run.sh serve --workspace /data/editor-workspace --allow-root /data/recordings
+```
+
+`EDITOR_EXPORT_ENCODER_QUEUE_FRAMES`로 카메라별 큐 크기도 지정할 수 있다.
+`editor/report.json`의 `export_runtime`, `episode_timings[*].video_frames`, `frame_drop_policy`에
+실제 설정과 인코딩 frame 수를 남긴다. CPU 스레드 설정 변경은 영상 품질/해상도/FPS 변경이 아니다.
+프레임 드롭 방지 이전 checkpoint는 새 pipeline에서 자동 재사용하지 않는다. 새 Export를 시작한다.

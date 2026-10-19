@@ -19,7 +19,8 @@ def package_version(name):
 
 
 class LeRobotBackend:
-    def __init__(self, dataset_class=None, encoder_class=None, codebase_version=None):
+    def __init__(self, dataset_class=None, encoder_class=None, codebase_version=None, runtime=None, heartbeat=lambda: None):
+        self.runtime, self.heartbeat = runtime, heartbeat
         if dataset_class is None:
             try:
                 module = importlib.import_module("lerobot.datasets.lerobot_dataset")
@@ -60,15 +61,39 @@ class LeRobotBackend:
         arguments = dict(repo_id=repo_id, fps=fps, features=features, root=root, video_backend="pyav")
         if "robot_type" in self.parameters:
             arguments["robot_type"] = robot_type
-        if "encoder_threads" in self.parameters:
-            arguments["encoder_threads"] = 2
-        if "streaming_encoding" in self.parameters:
-            arguments["streaming_encoding"] = True
+        self._runtime_arguments(arguments, self.parameters, features)
         if self.api_shape == "rgb_encoder":
             arguments["rgb_encoder"] = self.encoder_class(vcodec="h264", crf=23, preset="veryfast")
         else:
             arguments["vcodec"] = "libx264"
-        return self.dataset_class.create(**arguments)
+        writer = self.dataset_class.create(**arguments)
+        return self._lossless(writer, arguments, features)
+
+    def _runtime_arguments(self, arguments, parameters, features):
+        if self.runtime is None:
+            from ..export_runtime import ExportRuntime
+            self.runtime = ExportRuntime.choose(features)
+        if 'encoder_threads' in parameters:
+            arguments['encoder_threads'] = self.runtime.encoder_threads
+        if 'streaming_encoding' in parameters:
+            arguments['streaming_encoding'] = True
+        if 'encoder_queue_maxsize' in parameters:
+            arguments['encoder_queue_maxsize'] = self.runtime.encoder_queue_frames
+
+    def _lossless(self, writer, arguments, features):
+        if arguments.get('streaming_encoding') and any(ft['dtype'] == 'video' for ft in features.values()):
+            from .streaming import LosslessStreamingEncoder
+            internal = getattr(writer, 'writer', None)
+            encoder = getattr(internal, '_streaming_encoder', None)
+            if encoder is None:
+                raise LeRobotCompatibilityError('공식 streaming writer 구조가 바뀌었습니다. 어댑터 갱신이 필요합니다.')
+            internal._streaming_encoder = LosslessStreamingEncoder(encoder, self.heartbeat)
+        return writer
+
+    @staticmethod
+    def video_counts(writer):
+        encoder = getattr(getattr(writer, 'writer', None), '_streaming_encoder', None)
+        return dict(getattr(encoder, 'last_counts', {}))
 
     @staticmethod
     def save_episode(writer):
@@ -100,11 +125,9 @@ class LeRobotBackend:
             arguments["vcodec"] = "libx264" if codec == "h264" else codec
         else:
             raise LeRobotCompatibilityError("resume API의 codec 설정이 바뀌었습니다. 어댑터 갱신이 필요합니다.")
-        if "encoder_threads" in parameters:
-            arguments["encoder_threads"] = 2
-        if "streaming_encoding" in parameters:
-            arguments["streaming_encoding"] = True
-        return resume(**arguments)
+        self._runtime_arguments(arguments, parameters, info['features'])
+        writer = resume(**arguments)
+        return self._lossless(writer, arguments, info['features'])
 
     def load_dataset(self, root, repo_id="local/edited_dataset"):
         return self.dataset_class(repo_id, root=root, video_backend="pyav")

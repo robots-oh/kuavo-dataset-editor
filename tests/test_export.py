@@ -26,6 +26,10 @@ def test_official_writer_round_trip(tmp_path):
     reopened = LeRobotSource(tmp_path / "output")
     assert np.allclose(reopened.row(0, 0)["action"], [2/120+0.1, np.sin(2/20)+0.1])
     assert reopened.row(1, 0)["observation.images.head"].shape == (180, 320, 3)
+    import json
+    report = json.loads((tmp_path / 'output/editor/report.json').read_text())
+    assert report['frame_drop_policy'] == 'block_until_encoded'
+    assert all(set(timing['video_frames'].values()) == {10} for timing in report['episode_timings'])
 
 
 @pytest.mark.skipif(os.environ.get('EDITOR_TEST_EXPORT') != '1', reason='bounded real episode resume smoke')

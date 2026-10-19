@@ -113,6 +113,30 @@ def test_recording_start_cannot_be_extrapolated(gaps):
     with pytest.raises(EditError): resolve_quality(project, choices)
 
 
+def test_report_cache_reuses_scan_but_not_approvals_and_invalidates(gaps, monkeypatch):
+    import kuavo_dataset_editor.quality as quality
+    project, root = gaps
+    calls = []
+    original = quality._inspect_quality
+    def compute(project):
+        calls.append(True)
+        return original(project)
+    monkeypatch.setattr(quality, '_inspect_quality', compute)
+    first = inspect_quality(project)
+    first['issues'][0]['decision'] = 'exclude'
+    second = inspect_quality(project)
+    assert len(calls) == 1 and 'decision' not in second['issues'][0]
+    values = np.load(root / 'state.npy'); values[5, 0] = 0
+    np.save(root / 'state.npy', values)
+    assert inspect_quality(project)['invalid_frames'] == 2
+    assert len(calls) == 2
+    manifest = json.loads((root / 'catalog.json').read_text())
+    manifest['images'][manifest['cameras'][0]][9] = None
+    write_json(root / 'catalog.json', manifest)
+    assert inspect_quality(project)['invalid_frames'] == 3
+    assert len(calls) == 3
+
+
 def test_api_requires_review_before_job_and_keeps_project(gaps, tmp_path):
     from kuavo_dataset_editor.app import create_app
     project, _ = gaps
