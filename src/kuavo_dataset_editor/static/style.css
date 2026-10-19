@@ -583,7 +583,8 @@ dialog::backdrop {
   overflow: auto;
 }
 .quality-table-wrap {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 50vh;
   margin: 18px 0;
 }
 .quality-table {
@@ -602,4 +603,10 @@ dialog::backdrop {
 }
 .quality-table select {
   min-width: 180px;
+}
+.quality-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
 }
