@@ -55,6 +55,7 @@ def local_transport(monkeypatch):
         operations.append(payload['op'])
         return [sys.executable, '-c', ssh.REMOTE_HELPER, base64.b64encode(json.dumps(payload).encode()).decode()]
     monkeypatch.setattr(ssh, 'ssh_command', command)
+    monkeypatch.setattr('kuavo_dataset_editor.rsync_transfer.select_transport', lambda *a:'stream')
     return operations
 
 
@@ -144,7 +145,7 @@ def test_file_picker_api_batch_and_ssh_parameters(tmp_path, monkeypatch):
     with pytest.raises(EditError): endpoints['browse_files'](path=str(tmp_path))
     endpoints['start_import'](pid, {'paths':paths})
     assert started[-1][0] == 'import-batch'
-    assert endpoints['ssh_hosts']() == {'hosts':['fixture-host']}
+    assert endpoints['ssh_hosts']()['hosts'] == ['fixture-host']
     body = {'host':'fixture-host', 'paths':['/data/one.bag'], 'password':'DO_NOT_STORE', 'key':'DO_NOT_STORE'}
     endpoints['start_ssh_import'](pid, body)
     assert started[-1][0] == 'ssh-import'

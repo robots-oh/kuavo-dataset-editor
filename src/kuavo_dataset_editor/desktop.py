@@ -126,6 +126,7 @@ def create_window(backend):
             self.add_action("Bag 선택…", self.choose_bag)
             self.add_action("LeRobot 폴더 선택…", self.choose_dataset)
             self.add_action("출력 경로 선택…", self.choose_output)
+            self.add_action('SSH 저장 폴더…', self.choose_download)
             self.add_action("작업 폴더 열기", self.open_workspace)
             self.add_action("앱 전체화면", self.toggle_fullscreen, "F11")
             self.statusBar().showMessage("로컬 엔진 준비 완료 · 원본 읽기 전용")
@@ -171,6 +172,12 @@ def create_window(backend):
 
         def choose_output(self):
             self.page.runJavaScript("JSON.stringify({mode:document.getElementById('exportMode').value,name:document.getElementById('repoName').value})", self.output_dialog)
+
+        def choose_download(self):
+            path = QFileDialog.getExistingDirectory(self, 'SSH bag을 내려받을 로컬/SSD 폴더 선택')
+            if path:
+                backend.grant_directory(path)
+                self.set_path('pickerDownloadDir', path)
 
         def output_dialog(self, state):
             choice = json.loads(state) if state else {"mode": "new", "name": ""}

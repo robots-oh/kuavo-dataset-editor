@@ -27,22 +27,17 @@ def import_one(path, directory, source_id, profile, progress):
 
 
 def import_many(payload, directory, progress, checkpoint):
-    """Sequential imports/downloads; completed sources survive cancellation."""
+    """Local imports are sequential; SSH downloads run one file ahead."""
+    if payload.get('host'):
+        return import_ssh_many(payload, directory, progress, checkpoint)
     result = {"sources": [], "failures": [], "downloads": []}
     for index, item in enumerate(payload["items"]):
         count = len(payload["items"])
         progress(index / count, f"{index+1}/{count} · {Path(item['path']).name}")
         try:
             path = item["path"]
-            if payload.get("host"):
-                from .ssh_sources import download_bag
-                download = download_bag(payload["host"], path, directory.parent.parent / "downloads",
-                    lambda f, m: progress((index+0.65*f)/count, f"{index+1}/{count} · {m}"))
-                result["downloads"].append(download)
-                path = download["path"]
-            start = 0.65 if payload.get("host") else 0
             source = import_one(path, directory / item["source_id"], item["source_id"], payload["profile"],
-                lambda f, m: progress((index+start+(1-start)*f)/count, f"{index+1}/{count} · {m}"))
+                lambda f, m: progress((index+f)/count, f"{index+1}/{count} · {m}"))
             result["sources"].append(source)
         except Cancelled:
             raise
@@ -50,6 +45,92 @@ def import_many(payload, directory, progress, checkpoint):
             traceback.print_exc()
             result["failures"].append({"path": item["path"], "error": str(exc)})
         checkpoint(result)
+    return result
+
+
+def import_ssh_many(payload, directory, progress, checkpoint):
+    """One transfer ahead of one import; bounded disk/CPU concurrency."""
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+    from .ssh_sources import download_bag
+    items = payload['items']
+    count = len(items)
+    result = {'sources': [], 'failures': [], 'downloads': []}
+    cache = Path(payload.get('download_dir') or Path(directory).parent.parent / 'downloads')
+    stop = threading.Event()
+    lock = threading.RLock()
+    fractions = {'download': [0.0]*count, 'import': [0.0]*count}
+    messages = {'download': '대기', 'import': '대기'}
+
+    def update(phase, index, fraction, message):
+        if stop.is_set():
+            raise Cancelled()
+        with lock:
+            fractions[phase][index] = max(fractions[phase][index], fraction)
+            messages[phase] = f'{index+1}/{count} · {message}'
+            overall = (0.65*sum(fractions['download']) + 0.35*sum(fractions['import']))/count
+            progress(overall, '다운로드 '+messages['download']+' | 가져오기 '+messages['import'])
+
+    def receive(index):
+        device = payload.get('download_device')
+        if device is not None:
+            anchor = cache if cache.is_dir() else cache.parent
+            if ((payload.get('download_root_required') and not cache.is_dir())
+                    or not anchor.is_dir() or anchor.stat().st_dev != device):
+                raise EditError('선택한 SSD/다운로드 폴더가 연결되어 있지 않습니다. 내부 디스크에 대신 받지 않습니다.')
+        return download_bag(payload['host'], items[index]['path'], cache,
+                            lambda f,m: update('download',index,f,m),
+                            transport=payload.get('transport','auto'))
+
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='bag-transfer')
+    future = executor.submit(receive, 0)
+    try:
+        for index, item in enumerate(items):
+            download, failure = None, None
+            while True:
+                try:
+                    download = future.result(timeout=0.2)
+                    break
+                except FutureTimeout:
+                    if future.done():
+                        exception = future.exception()
+                        if exception is None:
+                            download = future.result()
+                        else:
+                            failure = str(exception)
+                        break
+                    with lock:
+                        progress((0.65*sum(fractions['download'])+0.35*sum(fractions['import']))/count,
+                                 '다운로드 '+messages['download']+' | 가져오기 '+messages['import'])
+                except Cancelled:
+                    raise
+                except Exception as exc:
+                    traceback.print_exc()
+                    failure = str(exc)
+                    break
+            if index+1 < count:
+                future = executor.submit(receive, index+1)
+            if failure is None:
+                result['downloads'].append(download)
+                try:
+                    update('import', index, 0, Path(item['path']).name)
+                    source = import_one(download['path'], Path(directory)/item['source_id'],
+                                        item['source_id'], payload['profile'],
+                                        lambda f,m: update('import',index,f,m))
+                    result['sources'].append(source)
+                except Cancelled:
+                    raise
+                except Exception as exc:
+                    traceback.print_exc()
+                    failure = str(exc)
+            if failure is not None:
+                result['failures'].append({'path': item['path'], 'error': failure})
+            with lock:
+                update('download',index,1,'완료' if download else '실패')
+                update('import',index,1,'완료' if failure is None else '실패')
+                checkpoint(result)
+    finally:
+        stop.set()
+        executor.shutdown(wait=True, cancel_futures=True)
     return result
 
 

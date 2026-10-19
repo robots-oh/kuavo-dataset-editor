@@ -25,6 +25,7 @@ Explicit local append/replace publishes with a recoverable backup of the old tar
 | `sources.py` | Read-only catalog and LeRobot adapters |
 | `file_browser.py`, `static/file-picker.mjs` | Allowed local folders / shared multi-file selection dialog |
 | `ssh_sources.py` | Existing OpenSSH aliases, read-only remote helper, resumable verified local downloads |
+| `rsync_transfer.py` | Optional protected-argument rsync-over-SSH transport with SHA-256 verification; no remote mutation |
 | `bag.py`, `ros1_reader.py` | ROS1 import and manufacturer message compatibility |
 | `profiles/` | Robot-specific topic, units, sampling, feature mappings |
 | `exporter.py` | Official LeRobot writer, new output, provenance, small reload |

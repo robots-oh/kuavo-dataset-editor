@@ -89,7 +89,10 @@ def create_app(workspace, allowed_roots=()):
     @app.get("/api/ssh/hosts")
     def ssh_hosts():
         from .ssh_sources import host_aliases
-        return {"hosts": host_aliases()}
+        settings = workspace / 'ssh-transfer-settings.json'
+        saved = json.loads(settings.read_text()) if settings.exists() else {}
+        return {'hosts': host_aliases(), 'download_dir': saved.get('download_dir',str(workspace/'downloads')),
+                'transport': saved.get('transport','auto')}
 
     @app.post("/api/ssh/browse")
     def ssh_browse(body: dict):
@@ -104,8 +107,24 @@ def create_app(workspace, allowed_roots=()):
         paths = body.get("paths")
         if not isinstance(paths, list) or not 1 <= len(paths) <= 100 or any(not isinstance(p, str) or not p.startswith("/") or not p.lower().endswith(".bag") for p in paths):
             raise EditError("원격 .bag 파일을 1–100개 선택하세요.")
+        settings = ssh_hosts()
+        choice = body.get('download_dir',settings['download_dir'])
+        download_dir = allowed(choice or workspace/'downloads')
+        custom_download_dir = download_dir != workspace/'downloads'
+        if custom_download_dir and not download_dir.is_dir():
+            raise EditError('다운로드 폴더가 없습니다. SSD를 연결하고 기존 폴더를 선택하세요.')
+        transport = body.get('transport', settings['transport'])
+        if transport not in ('auto','rsync','stream'):
+            raise EditError('지원하지 않는 SSH 전송 방식입니다.')
+        from .sources import write_json
+        temporary = workspace / ('.ssh-transfer-'+uuid4().hex+'.tmp')
+        write_json(temporary, {'download_dir':str(download_dir),'transport':transport})
+        temporary.replace(workspace / 'ssh-transfer-settings.json')
         return jobs.start("ssh-import", {"host": host, "project_id": pid,
             "items": [{"source_id": uuid4().hex, "path": p} for p in dict.fromkeys(paths)],
+            'download_dir':str(download_dir),'transport':transport,
+            'download_device':(download_dir if download_dir.is_dir() else workspace).stat().st_dev,
+            'download_root_required':custom_download_dir,
             "profile": body.get("profile") or config()["bag_profile"]})
 
     @app.post("/api/projects")
@@ -319,6 +338,7 @@ def create_app(workspace, allowed_roots=()):
         if job["kind"] == "ssh-import":
             from .ssh_sources import validate_host
             validate_host(payload["host"])
+            allowed(payload.get('download_dir') or workspace/'downloads')
         else:
             for item in items:
                 allowed(item["path"])

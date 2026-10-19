@@ -60,7 +60,7 @@ const api = async (path, body) => {
   calls.push({ path, body });
   if (path === "/api/files") return { roots: ["/bags"] };
   if (path.startsWith("/api/files?")) return listing;
-  if (path === "/api/ssh/hosts") return { hosts: ["fixture-host"] };
+  if (path === "/api/ssh/hosts") return { hosts: ["fixture-host"],download_dir:'/ssd/bags',transport:'auto' };
   if (path === "/api/ssh/browse") return listing;
   throw Error(path);
 };
@@ -68,7 +68,7 @@ const picker = setupFilePicker({
   api,
   notify: () => {},
   onSelect: (paths) => selected.push(paths),
-  onSSH: async (host, paths) => remote.push({ host, paths }),
+  onSSH: async (host, paths, options) => remote.push({ host, paths, options }),
 });
 await picker.open("local");
 el("pickerAll").onclick();
@@ -84,7 +84,7 @@ await el("pickerGo").onclick();
 el("pickerAll").onclick();
 await el("pickerUse").onclick();
 assert.deepEqual(remote, [
-  { host: "fixture-host", paths: ["/bags/one.bag", "/bags/two.bag"] },
+  { host: "fixture-host", paths: ["/bags/one.bag", "/bags/two.bag"], options:{download_dir:'/ssd/bags',transport:'auto'} },
 ]);
 assert.equal(selected.length, 1);
 assert.ok(

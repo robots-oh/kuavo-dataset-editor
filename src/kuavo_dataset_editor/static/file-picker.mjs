@@ -123,11 +123,12 @@ export function setupFilePicker({ api, onSelect, onSSH, notify }) {
       mode === "ssh" ? "SSH에서 bag 불러오기" : "로컬 파일·폴더에서 선택";
     $("pickerLocal").hidden = mode !== "local";
     $("pickerSSH").hidden = mode !== "ssh";
+    $("pickerTransfer").hidden = mode !== 'ssh';
     $("pickerPath").value = mode === "ssh" ? "~" : "";
     $("pickerSearch").value = "";
     $("pickerHelp").textContent =
       mode === "ssh"
-        ? "기존 ~/.ssh/config의 Host 별칭과 SSH 키/에이전트를 사용합니다. 원격 bag은 읽기만 하며, 로컬 다운로드 후 순차 import합니다."
+        ? "노트북의 기존 SSH 설정으로 원격 bag을 읽기만 합니다. rsync 자동 선택·이어받기·SHA-256 검증을 지원하며, 현재 bag을 처리하는 동안 다음 bag 하나를 미리 받습니다."
         : "에디터 실행 PC의 허용된 폴더를 탐색합니다. 선택 후 왼쪽의 원본 불러오기를 누르세요. 다른 폴더는 --allow-root 또는 데스크톱 상단 Bag 선택으로 허용할 수 있습니다.";
     render();
     dialog.showModal();
@@ -136,6 +137,8 @@ export function setupFilePicker({ api, onSelect, onSSH, notify }) {
       if (mode === "ssh") {
         const response = await api("/api/ssh/hosts");
         if (token !== generation) return;
+        if (!$("pickerDownloadDir").value) $("pickerDownloadDir").value = response.download_dir || '';
+        $("pickerTransport").value = response.transport || 'auto';
         $("pickerHost").replaceChildren(
           new Option("SSH 호스트 선택…", ""),
           ...response.hosts.map((h) => new Option(h, h)),
@@ -207,7 +210,10 @@ export function setupFilePicker({ api, onSelect, onSSH, notify }) {
     $("pickerUse").disabled = true;
     try {
       const paths = [...selected.keys()];
-      if (mode === "ssh") await onSSH(host, paths);
+      if (mode === "ssh") await onSSH(host, paths, {
+        download_dir: $("pickerDownloadDir").value.trim(),
+        transport: $("pickerTransport").value || 'auto',
+      });
       else onSelect(paths);
       dialog.close();
     } catch (error) {

@@ -35,6 +35,10 @@ Export의 streaming 큐는 밀려도 frame을 버리지 않고 기다린다. CPU
 
 [폴더에서 여러 bag 선택 · SSH 다운로드/이어받기](docs/DATA_IMPORT.md)
 
+노트북에서 로컬로 실행할 때 **SSH에서 불러오기**는 rsync를 자동 활용하고,
+현재 bag 처리와 다음 bag 하나의 다운로드를 겹친다. 데스크톱 상단 **SSH 저장 폴더…**에서
+외장 SSD를 선택할 수 있다. 원본 검증·이어받기를 유지하며 기존 annotation은 이동하지 않는다.
+
 처음 사용한다면 [실제 실행 화면으로 따라 하기](docs/VISUAL_GUIDE.md)를 먼저 보세요.
 화면의 번호와 버튼 이름을 따라 import → task 지정/수정 → Export → 선택적 Hub 공유를 진행할 수 있습니다.
 

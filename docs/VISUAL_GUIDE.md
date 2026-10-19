@@ -181,6 +181,9 @@ episode 끝에 도달하면 다른 episode 또는 원본을 선택한다.
 
 ## 7. 새 이름으로 로컬 Export
 
+SSH 다운로드를 노트북/SSD로 받을 때는 [로컬 실행·SSD 저장·빠른 SSH 가져오기](DATA_IMPORT.md#노트북-로컬-실행-외장-ssd)를 참고한다.
+업데이트된 데스크톱 앱은 상단 **SSH 저장 폴더…**, SSH 선택창은 **받은 bag 저장 폴더 / 전송 방식**을 제공한다.
+
 ![저장 방식, 새 dataset 이름, 출력 폴더와 미리보기 후 Export 버튼](assets/screenshots/07-export.jpg)
 
 1. **저장 방식 → 새 dataset repo 생성**을 선택한다.

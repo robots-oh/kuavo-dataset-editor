@@ -1010,14 +1010,15 @@ const picker = setupFilePicker({
   api,
   notify: toast,
   onSelect: selectImportPaths,
-  onSSH: async (host, paths) => {
+  onSSH: async (host, paths, options) => {
     if (!project) throw Error("프로젝트를 먼저 여세요.");
     await api(`/api/projects/${project.project_id}/ssh-imports`, {
       host,
       paths,
+      ...options,
       profile: JSON.parse($("profile").value),
     });
-    toast("SSH 다운로드·순차 가져오기 시작. 아래 작업 목록에서 확인하세요.");
+    toast("SSH 전송·가져오기 시작. 다음 bag 미리받기와 처리 단계는 아래 작업 목록에서 확인하세요.");
     await pollJobs();
   },
 });
