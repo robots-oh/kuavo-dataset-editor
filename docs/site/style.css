@@ -113,8 +113,21 @@ a:focus-visible {
   padding-top: 22px;
   margin: 32px 0 20px;
 }
-.sidebar > a:last-child:not(.brand) {
+.sidebar > a:not(.brand) {
   font-size: 13px;
+}
+.sidebar-contact {
+  margin-top: 24px;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.sidebar-contact > span {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 10px;
+  letter-spacing: 1.8px;
+  color: var(--muted);
 }
 .page {
   margin-left: 268px;

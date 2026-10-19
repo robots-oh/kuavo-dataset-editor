@@ -33,6 +33,9 @@ def test_generated_site_links(tmp_path):
         parsed[page] = parser
     assert len(parsed) == len(module.PAGES)
     for page, parser in parsed.items():
+        sidebar = page.read_text().split('</aside>', 1)[0]
+        assert 'class="sidebar-contact"' in sidebar
+        assert 'mailto:paragon7060@hanyang.ac.kr' in sidebar
         for href in parser.links:
             url = urlsplit(href)
             if url.scheme or url.netloc:
@@ -45,4 +48,9 @@ def test_generated_site_links(tmp_path):
             assert (page.parent / image).resolve().is_file(), (page, image)
     guide = output / 'docs/VISUAL_GUIDE.html'
     assert len(parsed[guide].images) == 10
-    assert 'shot-callout' in guide.read_text()
+    guide_html = guide.read_text()
+    assert 'shot-callout' in guide_html
+    assert '다른 PC의 브라우저에서 사용하기: SSH 터널' in guide_html
+    assert '127.0.0.1:8767:127.0.0.1:8765' in guide_html
+    assert 'ARM64의 LeRobot Export는 아직 지원 검증 전' in guide_html
+    assert 'mailto:paragon7060@hanyang.ac.kr' in parsed[guide].links
