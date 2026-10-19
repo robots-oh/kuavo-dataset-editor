@@ -32,6 +32,9 @@ def main():
     export.add_argument("--mode", choices=["new", "append", "replace"], default="new")
     export.add_argument("--repo-name")
     export.add_argument("--confirm-existing", action="store_true")
+    resume = sub.add_parser('resume-export', help='Resume an interrupted Export from its last complete episode')
+    resume.add_argument('job_id')
+    resume.add_argument('--workspace', default='workspace')
     hub = sub.add_parser("hub", help="Preview or explicitly publish a complete local dataset to Hugging Face")
     hub.add_argument("path")
     hub.add_argument("repo_id", help="owner/dataset-name")
@@ -68,6 +71,9 @@ def main():
         print(json.dumps(manager.start("export", {"project": project, "target": str(Path(args.target).resolve()),
                                                   "options": {"mode": args.mode, "repo_name": args.repo_name,
                                                               "confirm_existing": args.confirm_existing}}), indent=2))
+    elif args.command == 'resume-export':
+        from .jobs import JobManager
+        print(json.dumps(JobManager(args.workspace).resume_export(args.job_id), indent=2, ensure_ascii=False))
     elif args.command == "hub":
         from .hub import prepare_upload, publish_upload
         plan = prepare_upload(args.path, args.repo_id, private=not args.public)

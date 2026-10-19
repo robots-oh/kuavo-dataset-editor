@@ -77,3 +77,38 @@ bash run.sh export /data/edited-existing.json /data/rack-box-v1 --mode replace -
 
 CLI도 UI와 같은 worker/저장 계획을 사용한다. 편집 프로젝트가 같은 workspace에 있으면
 `--jobs-root /data/editor-workspace/jobs`로 지정해야 저장 후 해당 프로젝트 경로도 갱신된다.
+
+## Export 속도와 episode 단위 이어가기
+
+업데이트 후 **새로 시작한 Export**는 episode마다 공식 writer를 마감하고 checkpoint를 저장한다.
+작업 목록에서 완료 episode 수를 확인할 수 있다. 실패/취소 후에는 **완료 episode부터 이어가기**를
+누른다. CLI에서는 아래 명령을 사용할 수 있다.
+
+```bash
+bash run.sh resume-export <job-id> --workspace /data/editor-workspace
+```
+
+- 완료된 episode의 영상/data는 그대로 재사용한다. 중단됐던 episode는 첫 프레임부터 다시 처리한다.
+- 재개는 **그 작업을 시작할 당시의 annotation과 명시적으로 선택한 누락 보정/제외 결정**을 사용한다.
+  이후 편집한 annotation은 변경하지 않는다. 새 편집을 반영하려면 새 Export를 시작한다.
+- 다른 저장/업로드가 진행 중이면 중복 실행하지 않는다. 종료된 PID의 이전 lock은 진단용으로
+  `.stale-...`에 보존하고 회수한다. 소유자를 모르거나 다른 호스트의 잠금은 자동 회수하지 않는다.
+- `jobs/<job-id>/export-checkpoint.json`과 `checkpoint-.../`를 보존해야 이어갈 수 있다.
+  중단 시점의 미완료 파일은 같은 job의 `interrupted-.../`에 격리·보존하며 자동 삭제하지 않는다.
+  checkpoint는 작은 metadata/매핑을 복사하고 완료 영상을 매번 복제하지 않는다.
+- 작업 snapshot·원본/cache·실행 backend가 달라지거나 완료된 파일이 변경/누락되면 재사용하지 않는다.
+  파일 목록·크기·수정시간을 확인하며 전체 영상에 대한 checksum 검사를 반복하지 않는다.
+- 기존 버전의 job에는 checkpoint가 없으므로 새 Export가 필요하다. annotation/import를 다시 할 필요는 없다.
+  기존 partial은 보존하고 lock은 위 소유자 정책에 따라 처리하며, 과거 partial을 자동 복구하지는 않는다.
+- worker는 서버 터미널과 분리해서 실행한다. 브라우저/SSH 터널/서버를 닫아도 새 worker는 계속 실행하며,
+  서버를 같은 workspace로 다시 열면 상태를 확인한다. OS 재부팅·OOM·강제 종료까지 막는 것은 아니다.
+  업데이트 전에 이미 실행된 worker에는 소급 적용되지 않는다.
+
+영상은 공식 streaming encoder API가 있으면 RGB → H264로 직접 인코딩하여 임시 PNG 저장/재읽기를 생략한다.
+timestamp NPZ도 프레임마다 압축 해제하지 않고 한 번 읽어 사용한다. H264의 CRF 23/veryfast,
+encoder threads 2, 해상도, FPS는 유지한다(구 API는 기존 인코딩 경로로 호환).
+`editor/report.json`의 `episode_timings`에는 frame 처리와 episode 마감 시간이 남는다.
+이는 실제 데이터·CPU·저장장치에 따라 달라지므로 일정한 배속 향상을 보장하지 않는다.
+추가 모드의 최초 전체 dataset 복사와 마지막 게시/작은 로더 확인 시간은 별도다.
+기존 dataset 폴더를 복구본으로 교환하던 아주 짧은 게시 단계 자체가 강제 종료된 경우에는
+`publication.json`, partial/backup과 원래 경로를 확인한 뒤 복구해야 한다. 임의로 lock/backup을 삭제하지 않는다.

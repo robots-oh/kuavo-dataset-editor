@@ -669,6 +669,22 @@ async function pollJobs() {
         bar.max = 1;
         bar.value = j.progress || 0;
         el.append(title, bar);
+        if (j.checkpoint) {
+          const checkpoint = document.createElement('p');
+          checkpoint.textContent = `재사용 가능한 완료 episode: ${j.checkpoint.completed_episodes}개 · ${j.checkpoint.completed_frames} frames`;
+          el.append(checkpoint);
+        }
+        if (j.resumable) {
+          const resume = document.createElement('button');
+          resume.textContent = '완료 episode부터 이어가기';
+          resume.onclick = action(async () => {
+            if (!window.confirm('이 작업을 시작할 당시의 annotation과 누락 처리 선택으로 재개합니다. 완료 episode는 재사용하고 중단 episode부터 다시 처리할까요?')) return;
+            await api(`/api/jobs/${j.id}/resume-export`, {});
+            toast('원래 Export snapshot으로 재개합니다. 현재 편집 중인 annotation은 변경하지 않습니다.');
+            await pollJobs();
+          });
+          el.append(resume);
+        }
         if (j.error) {
           const err = document.createElement("p");
           err.className = "error";

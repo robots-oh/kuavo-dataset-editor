@@ -1,5 +1,6 @@
 """Isolated worker processes with durable request, status, log and cancellation."""
 import json
+import fcntl
 import os
 import subprocess
 import sys
@@ -10,6 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .sources import LeRobotSource, demo_source, write_json
+from .core import EditError
 
 
 class Cancelled(Exception):
@@ -71,10 +73,41 @@ class JobManager:
         directory.mkdir()
         write_json(directory / "request.json", {"kind": kind, "payload": payload})
         atomic_json(directory / "status.json", {"id": jid, "kind": kind, "status": "queued", "progress": 0, "created": time.time()})
-        with (directory / "worker.log").open("w") as log:
-            process = subprocess.Popen([sys.executable, "-m", "kuavo_dataset_editor", "_worker", str(directory)], stdout=log, stderr=subprocess.STDOUT)
+        self._spawn(jid, directory)
+        return self.get(jid)
+
+    def _spawn(self, jid, directory):
+        with (directory / 'worker.log').open('a') as log:
+            process = subprocess.Popen([sys.executable, '-m', 'kuavo_dataset_editor', '_worker', str(directory)],
+                                       stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                                       start_new_session=True)
         write_json(directory / "process.json", {"pid": process.pid})
         self.processes[jid] = process
+
+    def resume_export(self, jid):
+        from .checkpoints import checkpoint_state
+        self.get(jid)  # Validate identifier before accessing a path.
+        directory = self.root / jid
+        with (directory / 'launch.lock').open('a+') as guard:
+            try:
+                fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise EditError('이 작업의 재개 요청을 이미 처리 중입니다.') from exc
+            status = self.get(jid)
+            if status['kind'] != 'export' or status['status'] not in ('failed', 'cancelled'):
+                raise EditError('중단/실패한 Export만 이어갈 수 있습니다. 실행 중인 작업은 중복 실행하지 않습니다.')
+            if checkpoint_state(directory) is None:
+                raise EditError('이전 버전 작업에는 episode checkpoint가 없습니다. annotation은 유지되며 새 Export가 필요합니다.')
+            if (directory / 'publication.json').exists():
+                raise EditError('이미 게시된 결과가 있습니다. 완료 dataset과 로그를 먼저 확인하세요.')
+            if (directory / 'cancel').exists():
+                (directory / 'cancel').rename(directory / ('cancel-' + uuid4().hex))
+            status.update(status='queued', message='완료 episode부터 이어가기 대기', resumed=time.time())
+            status.pop('error', None)
+            status.pop('pid', None)
+            atomic_json(directory / 'status.json', status)
+            self.processes.pop(jid, None)
+            self._spawn(jid, directory)
         return self.get(jid)
 
     def get(self, jid):
@@ -99,6 +132,13 @@ class JobManager:
         if status["status"] in ("running", "queued") and not alive:
             status.update(status="failed", error="worker가 종료되었습니다. worker.log를 확인하세요.")
             atomic_json(directory / "status.json", status)
+        if status['kind'] == 'export':
+            from .checkpoints import checkpoint_state
+            checkpoint = checkpoint_state(directory)
+            status['checkpoint'] = ({key: checkpoint[key] for key in ('completed_episodes', 'completed_frames')}
+                                    if checkpoint else None)
+            status['resumable'] = bool(checkpoint and status['status'] in ('failed', 'cancelled')
+                                       and not (directory / 'publication.json').exists())
         return status
 
     def all(self):

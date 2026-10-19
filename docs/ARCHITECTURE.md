@@ -19,6 +19,8 @@ Explicit local append/replace publishes with a recoverable backup of the old tar
 | Module | Responsibility |
 |---|---|
 | `core.py` | Frame intervals, labels, trim/split, gaps, episode/export plan |
+| `checkpoints.py` | Per-episode metadata journal, immutable media inventory, interrupted-file quarantine |
+| `dataset_lock.py` | Shared export/Hub writer lock, advisory exclusion and conservative dead-owner recovery |
 | `store.py` | SQLite project revisions |
 | `sources.py` | Read-only catalog and LeRobot adapters |
 | `file_browser.py`, `static/file-picker.mjs` | Allowed local folders / shared multi-file selection dialog |

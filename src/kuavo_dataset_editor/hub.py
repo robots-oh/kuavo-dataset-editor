@@ -115,17 +115,9 @@ def publish_upload(plan, *, confirmed=False, sync_existing=False, api=None, prog
     if plan["exists"] and sync_existing is not True:
         raise EditError("기존 Hub dataset 동기화를 명시적으로 확인하세요. 원격 append가 아닙니다.")
     root = Path(plan["snapshot"]["root"])
-    lock = root.parent / f".{root.name}.editor-write.lock"
-    try:
-        stream = lock.open("x")
-    except FileExistsError as exc:
-        raise EditError("같은 로컬 dataset의 저장/업로드 작업이 진행 중입니다.") from exc
-    try:
-        with stream:
-            json.dump({"pid": os.getpid(), "kind": "hub-upload"}, stream)
+    from .dataset_lock import dataset_lock
+    with dataset_lock(root, kind='hub-upload'):
         return _publish_locked(plan, api=api, progress=progress)
-    finally:
-        lock.unlink(missing_ok=True)
 
 
 def _publish_locked(plan, *, api, progress):

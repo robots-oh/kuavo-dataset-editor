@@ -47,3 +47,19 @@ env -u LEROBOT_SOURCE -u PYTHONPATH EDITOR_TEST_EXPORT=1 \
 
 기본 테스트는 두 API 형태의 계약을 모의 객체로 확인한다. 실제 writer 검증은 고정 commit으로
 20프레임 round trip을 수행한다. 이것을 모든 과거/미래 버전의 통합 테스트로 해석하면 안 된다.
+## Episode checkpoint contract
+
+The current pinned official `create`/`resume` API supports `streaming_encoding=True`.
+The adapter enables it when available, retains H264 CRF/preset/thread settings and
+falls back to the original image-based path when absent. Each output episode is
+saved and finalized, then the next uses a fresh official resume writer. In the
+pinned writer, resume allocates **new** data/video chunk files, rather than appending
+to completed files. Small mutable metadata is journaled separately.
+
+When updating LeRobot, run the opt-in `test_interrupted_export_reuses_completed_episode`
+test as well as new/append/replace tests. It checks that completed video bytes and
+mtimes do not change, the resume writer adds only the missing episode, and official
+loading and frame/timestamp provenance remain correct. A new upstream version
+must not start overwriting old chunks without updating this checkpoint strategy.
+The resume identity includes backend versions, the frozen project/plan and source
+file identities; a changed environment must not silently reuse incompatible work.

@@ -325,6 +325,21 @@ def create_app(workspace, allowed_roots=()):
         payload["items"] = [{"path": item["path"], "source_id": uuid4().hex} for item in items]
         return jobs.start(job["kind"], payload)
 
+    @app.post('/api/jobs/{jid}/resume-export')
+    def resume_export(jid: str):
+        with api_lock:
+            jobs.get(jid)
+            request = json.loads((jobs.root / jid / 'request.json').read_text())
+            payload = request['payload']
+            if request['kind'] != 'export':
+                raise EditError('Export 작업만 이어갈 수 있습니다.')
+            allowed(payload['target'])
+            allowed(Path(payload['target']).parent)
+            for source in payload['project']['sources']:
+                allowed(source['path'])
+                allowed(source.get('original_path', source['path']))
+            return jobs.resume_export(jid)
+
     @app.post("/api/hub/plans")
     def hub_plan(body: dict):
         from .hub import local_snapshot

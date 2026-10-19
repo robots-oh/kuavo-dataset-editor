@@ -1,6 +1,7 @@
 """Official writer with staged new/append/replace publication."""
 import json
 import os
+import time
 from copy import deepcopy
 from pathlib import Path
 
@@ -41,8 +42,12 @@ def _write_dataset(project, staging, job_root, progress, transaction):
     sources = {s["source_id"]: s for s in project["sources"]}
     used = {r["source_id"] for r in plan["runs"]}
     adapters = {sid: open_source(sources[sid]) for sid in used}
-    time_maps = {sid: np.load(adapter.root / adapter.manifest["time_mapping"], allow_pickle=False)
-                 for sid, adapter in adapters.items() if isinstance(adapter, CatalogSource) and adapter.manifest.get("time_mapping")}
+    time_maps = {}
+    for sid, adapter in adapters.items():
+        if isinstance(adapter, CatalogSource) and adapter.manifest.get('time_mapping'):
+            # NPZ indexing decompresses an entire column, not just one element.
+            with np.load(adapter.root / adapter.manifest['time_mapping'], allow_pickle=False) as mapping:
+                time_maps[sid] = {key: mapping[key] for key in mapping.files}
     features = clean_features(next(iter(adapters.values())).features)
     for sid, adapter in adapters.items():
         if clean_features(adapter.features) != features:
@@ -52,18 +57,35 @@ def _write_dataset(project, staging, job_root, progress, transaction):
         if expected and expected["method"] == "manifest-size-mtime-sha256" and fingerprint(original) != expected:
             raise EditError(f"원본 파일 목록/크기가 변경되었습니다: {sid}. source를 다시 등록하세요.")
     from .repositories import existing_provenance, preserve_editor_history
-    output_rows = existing_provenance(staging, settings) if append else []
+    from .checkpoints import EpisodeCheckpoint
+    checkpoint = EpisodeCheckpoint(staging, job_root, {
+        'project': transaction.project, 'settings': settings, 'backend': backend.describe(),
+        'sources': {sid: fingerprint(adapter.root) for sid, adapter in adapters.items()}})
+    restored = checkpoint.restore()
+    output_rows = restored['rows'] if restored else (existing_provenance(staging, settings) if append else [])
     truncation_file = staging / "editor/truncation.json"
-    truncations = json.loads(truncation_file.read_text()) if append and truncation_file.exists() else []
-    writer = (backend.resume_writer(staging, settings["repo_id"]) if append else
-              backend.create_writer(fps=plan["fps"], features=features, root=staging,
-                                    robot_type=next(iter(sources.values())).get("robot_type"),
-                                    repo_id=settings["repo_id"]))
-    finished = 0
+    truncations = restored['truncations'] if restored else (json.loads(truncation_file.read_text()) if append and truncation_file.exists() else [])
+    finished = restored['completed_frames'] if restored else 0
+    completed = restored['completed_episodes'] if restored else 0
+    timings = restored['timings'] if restored else []
+    if not restored:
+        checkpoint.save(0, 0, output_rows, truncations, timings)
+    progress(finished / plan['kept_frames'] * 0.9,
+             f"완료 episode {completed}/{plan['num_episodes']} 재사용; 다음 episode부터 처리")
     from .quality import corrected_row, repair_index
     repairs = repair_index(settings['quality'])
+    writer = None
     try:
         for out_episode, run in enumerate(plan["runs"], start=base_episodes):
+            if out_episode < base_episodes + completed:
+                continue
+            episode_start = time.monotonic()
+            # A new official resume writer starts new data/video chunks. A crash
+            # can change metadata, but never rewrites a completed episode's media.
+            writer = (backend.resume_writer(staging, settings['repo_id']) if append or completed else
+                      backend.create_writer(fps=plan['fps'], features=features, root=staging,
+                                            robot_type=sources[run['source_id']].get('robot_type'),
+                                            repo_id=settings['repo_id']))
             source = sources[run["source_id"]]
             adapter = adapters[run["source_id"]]
             original_episode = next(e for e in source["episodes"] if e["episode_id"] == run["episode_id"])
@@ -90,16 +112,38 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                     if run["source_id"] in time_maps:
                         times = time_maps[run["source_id"]]
                         output_rows[-1]["source_bag_time_ns"] = int(times["bag_time_ns"][source_frame])
-                        for key in times.files:
+                        for key in times:
                             if key != "bag_time_ns":
                                 output_rows[-1]["source/"+key] = int(times[key][source_frame])
                     finished += 1
+            frames_done = time.monotonic()
+            progress(finished / plan['kept_frames'] * 0.9,
+                     f"episode {out_episode-base_episodes+1}/{plan['num_episodes']} 영상/metadata 마감 중")
             backend.save_episode(writer)
-        writer.finalize()
+            writer.finalize()
+            completed += 1
+            finalized = time.monotonic()
+            timings.append({'episode': out_episode, 'frames_seconds': frames_done-episode_start,
+                            'save_seconds': finalized-frames_done})
+            checkpoint.save(completed, finished, output_rows, truncations, timings)
+            progress(finished / plan['kept_frames'] * 0.9,
+                     f"완료 episode {completed}/{plan['num_episodes']} checkpoint 저장됨")
     except BaseException:
+        # Stop streaming threads and close partial metadata before a retry can
+        # restore the journal. Never leave an old writer alive in this process.
+        if writer is not None:
+            from contextlib import suppress
+            with suppress(Exception):
+                internal = getattr(writer, 'writer', None)
+                cancel = getattr(internal, 'cancel_pending_videos', None)
+                if callable(cancel):
+                    cancel()
+                writer.finalize()
         # Partial output is intentionally recoverable, never confused with a complete dataset.
-        write_json(staging / "EDITOR_INCOMPLETE.json", {"job": job_root.name, "frames_added": finished})
+        if staging.exists():
+            write_json(staging / "EDITOR_INCOMPLETE.json", {"job": job_root.name, "frames_added": finished})
         raise
+    (staging / 'EDITOR_INCOMPLETE.json').unlink(missing_ok=True)
     provenance = staging / "editor"
     provenance.mkdir(exist_ok=True)
     if settings["mode"] != "new":
@@ -148,6 +192,7 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                              "backend": backend.describe(),
                                              "frames": base_frames + finished, "episodes": settings["output_episodes"],
                                              "frames_added": finished, "mode": settings["mode"],
+                                             "episode_timings": timings,
                                              "round_trip": "official_loader_first_last",
                                              "unlabeled_removed": plan["dropped_frames"],
                                              "quality_issues": len(settings['quality']['issues']),

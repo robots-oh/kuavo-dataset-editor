@@ -231,6 +231,12 @@ bag·센서별로 끊긴 프레임 수, 구간, 앞뒤 원본 메시지의 시�
 2. 표시된 경로가 학습에 사용할 완성된 LeRobot 폴더다. 프로젝트 JSON이나 bag 경로와 구분한다.
 3. 공유가 필요할 때만 **이 결과를 Hub 업로드 경로로 사용**을 누른다.
 
+업데이트 후 새 Export는 episode별 checkpoint를 저장한다. 실패/취소되면 작업 목록의
+**완료 episode부터 이어가기**를 눌러 완료 영상을 재사용하고 중단 episode부터 다시 처리한다.
+그 작업 시작 당시의 annotation/누락 처리 선택으로 재개하며, 현재 편집 내용은 변경하지 않는다.
+구 버전 job은 checkpoint가 없어 새 Export가 필요하다.
+[재개·잠금 처리 상세](DATASET_REPOSITORIES.md#export-속도와-episode-단위-이어가기)
+
 그림의 로컬 Export는 별도 설명용 workspace에서 실제로 완료했다. 로컬 Export만 사용해도 된다.
 오류가 나면 **로그**에서 원인을 확인한다. 완성되지 않은 `.partial` 폴더를 최종 데이터로 쓰지 않는다.
 

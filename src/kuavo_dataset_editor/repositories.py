@@ -1,7 +1,6 @@
 """Local dataset identity, preflight and recoverable directory publication."""
 from copy import deepcopy
 import json
-import os
 from pathlib import Path
 import re
 import shutil
@@ -215,14 +214,14 @@ class RepositoryTransaction:
             raise EditError("기존 dataset 변경 확인이 필요합니다. 복구본을 남기는 추가/수정을 명시적으로 확인하세요.")
         self.target.parent.mkdir(parents=True, exist_ok=True)
         self.job_root.mkdir(parents=True, exist_ok=True)
+        from .dataset_lock import dataset_lock
+        self._lock = dataset_lock(self.target, job=str(self.job_root), kind='export')
+        self._lock.__enter__()
+        self.locked = True
         try:
-            with self.lock_path.open("x") as stream:
-                json.dump({"pid": os.getpid(), "job": str(self.job_root), "target": str(self.target)}, stream)
-            self.locked = True
-        except FileExistsError as exc:
-            raise EditError(f"같은 dataset의 다른 저장 작업 또는 중단된 작업 lock이 있습니다: {self.lock_path}") from exc
-        try:
-            if self.staging.exists() or self.backup.exists():
+            from .checkpoints import checkpoint_state
+            self.resuming = checkpoint_state(self.job_root) is not None
+            if (self.staging.exists() and not self.resuming) or self.backup.exists():
                 raise EditError("같은 작업의 미완료 출력/복구본이 있습니다. 새 작업으로 실행하세요.")
             if self.plan["mode"] != "new":
                 if fingerprint(self.target) != self.plan["baseline"]:
@@ -230,7 +229,7 @@ class RepositoryTransaction:
                 self.snapshot = retarget_project(self.selection, self.target, self.backup, self.plan["baseline"])
             else:
                 self.snapshot = deepcopy(self.selection)
-            if self.plan["mode"] == "append":
+            if self.plan["mode"] == "append" and not self.resuming:
                 shutil.copytree(self.target, self.staging, copy_function=shutil.copy2)
             # Preserve dataset cards, licenses, Git metadata and extra root assets on replacement.
             if self.plan["mode"] == "replace":
@@ -274,5 +273,5 @@ class RepositoryTransaction:
 
     def __exit__(self, *_):
         if self.locked:
-            self.lock_path.unlink(missing_ok=True)
+            self._lock.__exit__(None, None, None)
             self.locked = False

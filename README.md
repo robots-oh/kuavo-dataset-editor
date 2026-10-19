@@ -24,6 +24,10 @@ kuavo-dataset-editor/
 
 [Dataset 이름 지정·기존 repo 추가/수정](docs/DATASET_REPOSITORIES.md)
 
+Export는 episode마다 checkpoint를 남긴다. 중단/취소 후 작업 목록의 **완료 episode부터 이어가기**로
+완료 영상의 재인코딩 없이 재개한다. 이 기능이 없는 구 버전 job은 새 Export가 필요하며
+기존 annotation은 유지된다. [재개 방법과 속도 개선](docs/DATASET_REPOSITORIES.md#export-속도와-episode-단위-이어가기)
+
 [Hugging Face 업로드](docs/HUGGING_FACE.md) · [문서 사이트 / GitHub Pages 배포](docs/GITHUB_PAGES.md)
 
 [폴더에서 여러 bag 선택 · SSH 다운로드/이어받기](docs/DATA_IMPORT.md)

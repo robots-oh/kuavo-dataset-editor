@@ -62,6 +62,8 @@ class LeRobotBackend:
             arguments["robot_type"] = robot_type
         if "encoder_threads" in self.parameters:
             arguments["encoder_threads"] = 2
+        if "streaming_encoding" in self.parameters:
+            arguments["streaming_encoding"] = True
         if self.api_shape == "rgb_encoder":
             arguments["rgb_encoder"] = self.encoder_class(vcodec="h264", crf=23, preset="veryfast")
         else:
@@ -100,6 +102,8 @@ class LeRobotBackend:
             raise LeRobotCompatibilityError("resume API의 codec 설정이 바뀌었습니다. 어댑터 갱신이 필요합니다.")
         if "encoder_threads" in parameters:
             arguments["encoder_threads"] = 2
+        if "streaming_encoding" in parameters:
+            arguments["streaming_encoding"] = True
         return resume(**arguments)
 
     def load_dataset(self, root, repo_id="local/edited_dataset"):

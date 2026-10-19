@@ -18,8 +18,8 @@ class Writer:
 
 class Modern(Writer):
     @classmethod
-    def create(cls, repo_id, fps, features, root, video_backend, rgb_encoder, encoder_threads=1, robot_type=None):
-        return SimpleNamespace(codec=rgb_encoder.vcodec, threads=encoder_threads, root=root)
+    def create(cls, repo_id, fps, features, root, video_backend, rgb_encoder, encoder_threads=1, robot_type=None, streaming_encoding=False):
+        return SimpleNamespace(codec=rgb_encoder.vcodec, threads=encoder_threads, root=root, streaming=streaming_encoding)
 
 
 class Legacy(Writer):
@@ -32,6 +32,7 @@ def test_modern_and_legacy_api_shapes():
     modern = LeRobotBackend(Modern, SimpleNamespace, 'v3.0')
     assert modern.create_writer(fps=30, features={}, root='output').codec == 'h264'
     assert modern.create_writer(fps=30, features={}, root='output').threads == 2
+    assert modern.create_writer(fps=30, features={}, root='output').streaming is True
     legacy = LeRobotBackend(Legacy, codebase_version='v3.0')
     assert legacy.create_writer(fps=30, features={}, root='output').codec == 'libx264'
     writer = Writer()
