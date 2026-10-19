@@ -10,6 +10,9 @@ changes. `scandir` fingerprints retain the previous file identity ordering.
 The official writer tests (new/append/replace and interrupted-episode resume) pass
 with camera queues limited to one frame; exported camera frame counts equal input
 counts. These are bounded synthetic tests, not a measured speedup on a full bag.
+The same 20-frame/two-episode doctor export passed on Linux ARM64 using the existing
+CPU Torch 2.11 / PyAV environment, with one-frame camera queues. No system packages
+were installed. The deployment's before/after serialized annotation payloads matched.
 
 ## Explicit missing data review before Export
 

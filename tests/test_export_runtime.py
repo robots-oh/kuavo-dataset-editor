@@ -84,6 +84,15 @@ def test_runtime_bounds_memory_and_honors_explicit_settings(monkeypatch):
     with pytest.raises(ValueError): ExportRuntime.choose({})
 
 
+def test_runtime_auto_scales_on_small_cpu_host(monkeypatch):
+    import os
+    monkeypatch.setattr(os, 'sched_getaffinity', lambda _: {0, 1})
+    for key in ('CPU_BUDGET', 'DECODE_WORKERS', 'PREFETCH_FRAMES', 'ENCODER_THREADS', 'ENCODER_QUEUE_FRAMES'):
+        monkeypatch.delenv('EDITOR_EXPORT_' + key, raising=False)
+    runtime = ExportRuntime.choose({'camera': {'dtype': 'video', 'shape': [180, 320, 3]}})
+    assert runtime.cpu_budget == 1 and runtime.decode_workers == 1 and runtime.encoder_threads == 1
+
+
 def test_faster_fingerprint_preserves_existing_identity(tmp_path):
     (tmp_path / 'a').mkdir()
     (tmp_path / 'a/z').write_bytes(b'child')

@@ -29,7 +29,8 @@ class Legacy(Writer):
 
 
 def test_modern_and_legacy_api_shapes():
-    modern = LeRobotBackend(Modern, SimpleNamespace, 'v3.0')
+    from kuavo_dataset_editor.export_runtime import ExportRuntime
+    modern = LeRobotBackend(Modern, SimpleNamespace, 'v3.0', runtime=ExportRuntime(6, 2, 4, 2, 4))
     assert modern.create_writer(fps=30, features={}, root='output').codec == 'h264'
     assert modern.create_writer(fps=30, features={}, root='output').threads == 2
     assert modern.create_writer(fps=30, features={}, root='output').streaming is True
