@@ -39,6 +39,8 @@ def _key(project):
 
 
 def gap_report(project, compute):
+    if any(source.get('export_derivation') for source in project['sources']):
+        return compute(project)  # Job-local derived arrays are not the original catalog files.
     key = _key(project)
     with _lock:
         if key in _cache:

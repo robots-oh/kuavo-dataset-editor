@@ -753,6 +753,23 @@ async function pollJobs() {
           r.textContent = j.result.path;
           el.append(r);
           if (j.kind === "export") {
+            if (j.result.mask_summary) {
+              const detail = document.createElement('details');
+              const title = document.createElement('summary');
+              title.textContent = '관절별 유효 정답 / 누락 요약 (0은 미기록·학습 제외)';
+              detail.append(title);
+              for (const [key, stats] of Object.entries(j.result.mask_summary)) {
+                const line = document.createElement('p');
+                line.textContent = `${key}: ${stats.frames} frames · 미기록 값은 명령 0이 아닙니다.`;
+                detail.append(line);
+                stats.valid_counts.forEach((count, i) => {
+                  const item = document.createElement('div');
+                  item.textContent = `${stats.names?.[i] || i}: 유효 ${count}/${stats.frames} (${(100*count/stats.frames).toFixed(1)}%), 누락 ${stats.masked_counts[i]}`;
+                  detail.append(item);
+                });
+              }
+              el.append(detail);
+            }
             const use = document.createElement("button");
             use.textContent = "이 결과를 Hub 업로드 경로로 사용";
             use.onclick = () => {
@@ -857,6 +874,7 @@ async function prepareExport() {
   const mode = $("exportMode").value;
   const body = {
     mode,
+    schema: $("exportSchema").value,
     repo_name: $("repoName").value.trim(),
     target: $("exportPath").value.trim() || undefined,
     confirm_existing: $("confirmExisting").checked,
@@ -879,7 +897,7 @@ async function prepareExport() {
   if (project.project_id !== projectId) throw Error("프로젝트가 바뀌었습니다. 다시 Export하세요.");
   if (
     !confirm(
-      `${mode === "new" ? "새 생성" : mode === "append" ? "기존에 추가" : "기존 수정"}: ${p.repo_id}\n${p.target}\n\n현재 선택 ${p.kept_frames} frames (${(p.kept_frames / p.fps).toFixed(2)}초)\n미지정·승인된 누락 제외 ${p.dropped_frames} frames\n최종 ${p.output_frames} frames / ${p.output_episodes} episodes\n누락 구간 처리 ${p.quality?.issues.length || 0}건 (선택 내역 기록)\n${mode === "append" ? `기존 ${p.existing_frames} frames는 유지합니다. 중복 구간은 자동 제거하지 않습니다.\n` : ""}${mode !== "new" ? "기존 폴더는 복구본으로 보존합니다.\n" : ""}\n저장본 r${p.project_revision}으로 진행할까요?`,
+      `${mode === "new" ? "새 생성" : mode === "append" ? "기존에 추가" : "기존 수정"}: ${p.repo_id}\n${p.target}\n\n출력 구성: ${p.schema}\n${p.schema !== 'legacy' ? '미기록 목표·상태는 validity=0으로 저장합니다. 학습 mask 연결이 필요합니다.\n랙 보정/다중 태그/TF가 없으면 랙 상대 위치도 미기록 처리됩니다.\n' : ''}현재 선택 ${p.kept_frames} frames (${(p.kept_frames / p.fps).toFixed(2)}초)\n미지정·승인된 누락 제외 ${p.dropped_frames} frames\n최종 ${p.output_frames} frames / ${p.output_episodes} episodes\n누락 구간 처리 ${p.quality?.issues.length || 0}건 (선택 내역 기록)\n${mode === "append" ? `기존 ${p.existing_frames} frames는 유지합니다. 중복 구간은 자동 제거하지 않습니다.\n` : ""}${mode !== "new" ? "기존 폴더는 복구본으로 보존합니다.\n" : ""}\n저장본 r${p.project_revision}으로 진행할까요?`,
     )
   )
     return;
@@ -914,15 +932,27 @@ async function loadSignals() {
   );
   const keys = [...new Set(signalData.flatMap((p) => Object.keys(p.values)))];
   $("signalKey").replaceChildren(...keys.map((k) => new Option(k, k)));
+  signalDimensions();
   drawSignals();
+}
+function signalDimensions() {
+  const key = $('signalKey').value;
+  const feature = source()?.features?.[key];
+  const count = feature?.shape?.reduce((a,b) => a*b,1) || signalData.find(p => p.values[key])?.values[key].length || 1;
+  $('signalDimension').replaceChildren(...Array.from({length:count},(_,i) => new Option(feature?.names?.[i] || `${key}[${i}]`, i)));
 }
 function drawSignals() {
   const cv = $("signals"),
     ctx = cv.getContext("2d");
   ctx.clearRect(0, 0, cv.width, cv.height);
   const key = $("signalKey").value,
-    values = signalData.map((p) => p.values[key]?.[0]).filter(Number.isFinite);
-  if (!values.length) return;
+    dim = Number($('signalDimension').value || 0),
+    values = signalData.map((p) => p.values[key]?.[dim]).filter(Number.isFinite);
+  if (!values.length) {
+    ctx.fillStyle = '#9aa9bc';
+    ctx.fillText(`${key}[${dim}] 미기록 / 유효성 0 — 실제 0 명령이 아닙니다`,10,20);
+    return;
+  }
   const min = Math.min(...values),
     max = Math.max(...values);
   ctx.strokeStyle = "#61d6b4";
@@ -930,8 +960,10 @@ function drawSignals() {
   ctx.beginPath();
   let active = false;
   for (const p of signalData) {
-    const v = p.values[key]?.[0];
+    const v = p.values[key]?.[dim];
     if (!Number.isFinite(v)) {
+      ctx.fillStyle = '#77777744';
+      ctx.fillRect((p.frame / episode().num_frames) * cv.width,20,Math.max(2,cv.width/signalData.length),100);
       active = false;
       continue;
     }
@@ -943,7 +975,7 @@ function drawSignals() {
   }
   ctx.stroke();
   ctx.fillStyle = "#9aa9bc";
-  ctx.fillText(`${key}[0]  ${min.toFixed(3)} .. ${max.toFixed(3)}`, 10, 12);
+  ctx.fillText(`${key}[${dim}]  ${min.toFixed(3)} .. ${max.toFixed(3)} · 회색/빈 구간: 미기록`, 10, 12);
 }
 $("newProject").onclick = action(async () => {
   const name = prompt("프로젝트 이름", "VR task 편집");
@@ -1094,7 +1126,8 @@ $("snapshot").onclick = () => {
   if (project) window.location = `/api/projects/${project.project_id}/snapshot`;
 };
 $("loadSignals").onclick = action(loadSignals);
-$("signalKey").onchange = drawSignals;
+$("signalKey").onchange = () => { signalDimensions(); drawSignals(); };
+$("signalDimension").onchange = drawSignals;
 document.addEventListener("keydown", (e) => {
   if ($("filePicker").open || $("qualityReview").open) return;
   if (e.target.matches("input,textarea,select") || !episode()) return;

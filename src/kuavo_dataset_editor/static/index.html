@@ -123,8 +123,11 @@
             <summary>관절·gripper·base 신호 보기</summary>
             <button id="loadSignals">신호 불러오기</button
             ><select id="signalKey" aria-label="신호 선택"></select
+            ><select id="signalDimension" aria-label="관절·차원 선택"></select
             ><canvas id="signals" width="960" height="130"></canvas>
-            <p class="muted">첫 번째 성분 표시 · 누락은 연결하지 않습니다.</p>
+            <p class="muted">관절·차원별 선택 · 회색/빈 구간은 미기록이며 실제 0 명령이 아닙니다.
+              missing_reason의 0=유효, 1=토픽 없음, 2=샘플 누락/오래됨, 3=잘못된 값,
+              4=랙 보정 없음, 5=신뢰할 다중 태그 없음, 6=TF 없음입니다.</p>
           </details>
           <div class="row">
             <h2>Clip 목록</h2>
@@ -206,6 +209,13 @@
         ><button id="exclude" class="danger">선택 구간 라벨 제거 / 제외</button>
         <hr />
         <h2>Export</h2>
+        <label>출력 구성<select id="exportSchema">
+          <option value="kuavo_wholebody_v1">새 구성: state 24 / action 23 (torso·랙 기준 base 포함)</option>
+          <option value="kuavo_state24_v1">state 24 / 기존 action 유지</option>
+          <option value="legacy">기존 구성 유지 (기존 dataset 편집·추가)</option>
+        </select></label>
+        <p class="muted">새 구성은 원본 bag 전체에서 다시 계산합니다. 미기록 값은 validity=0·누락 사유와 함께 저장합니다.
+          GR00T 학습에서는 mask를 별도로 연결해야 합니다. 기존 14차원 dataset에 새 구성을 추가할 수는 없습니다.</p>
         <label
           >저장 방식<select id="exportMode">
             <option value="new">새 dataset repo 생성</option>

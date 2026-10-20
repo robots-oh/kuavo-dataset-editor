@@ -24,6 +24,12 @@ kuavo-dataset-editor/
 
 [Dataset 이름 지정·기존 repo 추가/수정](docs/DATASET_REPOSITORIES.md)
 
+[Torso·랙 기준 base state24 / action23 · 유효성 mask·누락 사유](docs/WHOLEBODY_SCHEMA.md)
+
+새 Export 구성은 기존 annotation을 유지하면서 원본 bag 전체에서 torso/랙 상대 base를 계산합니다.
+미기록 값은 bool 유효성(0/1)과 uint8 사유 코드로 구분하며, 관절별 이름과 정규화 통계를 함께 저장합니다.
+학습 시 mask 연결은 별도이며, 기존 dataset을 그대로 편집할 때는 **기존 구성 유지**를 선택하세요.
+
 Export는 episode마다 checkpoint를 남긴다. 중단/취소 후 작업 목록의 **완료 episode부터 이어가기**로
 완료 영상의 재인코딩 없이 재개한다. 이 기능이 없는 구 버전 job은 새 Export가 필요하며
 기존 annotation은 유지된다. [재개 방법과 속도 개선](docs/DATASET_REPOSITORIES.md#export-속도와-episode-단위-이어가기)

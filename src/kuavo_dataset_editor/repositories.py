@@ -140,7 +140,14 @@ def prepare_export(project, target, options=None):
     if not plan["runs"]:
         raise EditError("저장할 라벨 구간이 없습니다. 추가 모드에서는 대상 dataset 자체의 구간은 제외합니다.")
     used = {run["source_id"] for run in plan["runs"]}
-    schemas = [clean_features(open_source(s).features) for s in selection["sources"] if s["source_id"] in used]
+    from .wholebody import schema_name, schema_features, validate_source, contract
+    schema = schema_name(options)
+    schemas = []
+    for source in selection['sources']:
+        if source['source_id'] not in used:
+            continue
+        validate_source(source,schema)
+        schemas.append(clean_features(schema_features(open_source(source).features,schema)))
     if any(schema != schemas[0] for schema in schemas[1:]):
         raise EditError("source feature schema가 다릅니다. 같은 profile끼리 export하세요.")
     for source in project["sources"]:
@@ -176,6 +183,7 @@ def prepare_export(project, target, options=None):
             raise EditError("수정할 dataset을 먼저 이 프로젝트의 원본으로 불러오세요.")
         baseline = fingerprint(target)
     return {**plan, **identity, "mode": mode, "target": str(target), "baseline": baseline, "quality": quality,
+            'schema':schema,'schema_contract':contract(schema) if schema!='legacy' else None,
             "existing_frames": base_frames, "existing_episodes": base_episodes,
             "output_frames": base_frames + plan["kept_frames"],
             "output_episodes": base_episodes + plan["num_episodes"]}

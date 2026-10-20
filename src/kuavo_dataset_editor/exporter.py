@@ -173,6 +173,36 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                                "baseline": settings["baseline"], "job": str(job_root)})
     write_json(provenance / "export_plan.json", plan)
     write_json(provenance / "quality.json", settings['quality'])
+    if transaction.options.get('source_quality'):
+        write_json(provenance/'source_quality.json',transaction.options['source_quality'])
+    from .wholebody import contract
+    schema = settings.get('schema','legacy')
+    if schema!='legacy':
+        write_json(staging/'meta/kuavo_schema.json',contract(schema))
+    else:
+        # Re-editing to a NEW folder also preserves the portable schema contract.
+        candidates = [adapter.root/'meta/kuavo_schema.json' for adapter in adapters.values()]
+        if append or settings['mode']=='replace':
+            candidates.insert(0,transaction.target/'meta/kuavo_schema.json')
+        for original_contract in candidates:
+            if original_contract.is_file():
+                write_json(staging/'meta/kuavo_schema.json',json.loads(original_contract.read_text()))
+                break
+    for sid,adapter in adapters.items():
+        path = getattr(adapter,'manifest',{}).get('wholebody_report')
+        if path:
+            destination = provenance/'reconstruction'/job_root.name
+            destination.mkdir(parents=True,exist_ok=True)
+            write_json(destination/(sid+'.json'),json.loads(Path(path).read_text()))
+        else:
+            history = adapter.root/'editor/reconstruction'
+            if history.is_dir():
+                for item in history.rglob('*.json'):
+                    if not item.resolve().is_relative_to(adapter.root):
+                        raise EditError('reconstruction 보고서가 원본 경로 밖을 가리킵니다.')
+                    destination = provenance/'reconstruction'/job_root.name/sid/item.relative_to(history)
+                    destination.parent.mkdir(parents=True,exist_ok=True)
+                    write_json(destination,json.loads(item.read_text()))
     write_json(provenance / "truncation.json", truncations)
     columns = sorted({key for row in output_rows for key in row})
     pq.write_table(pa.table({key: [row.get(key) for row in output_rows] for key in columns}), provenance / "frame_mapping.parquet")
@@ -198,6 +228,9 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                             mapped = {**event, "source_id": sid, "episode_index": index,
                                       "output_time_s": t-run["start_frame"]/plan["fps"]}
                             output_events.write(json.dumps(mapped, ensure_ascii=False)+"\n")
+    from .masking import finalize_mask_metadata
+    progress(0.93,'유효한 값만으로 정규화 통계·누락 요약 저장 (영상 재디코딩 없음)')
+    mask_summary = finalize_mask_metadata(staging)
     progress(0.94, "작은 round-trip 확인")
     loaded = backend.load_dataset(staging, settings["repo_id"])
     if len(loaded) != settings["output_frames"] or loaded.meta.total_episodes != settings["output_episodes"]:
@@ -216,11 +249,20 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                              "unlabeled_removed": plan["dropped_frames"],
                                              "quality_issues": len(settings['quality']['issues']),
                                              "originals_preserved": True})
-    return {"frames": base_frames + finished, "episodes": settings["output_episodes"]}
+    return {"frames": base_frames + finished, "episodes": settings["output_episodes"],
+            'schema':schema,'mask_summary':mask_summary}
 
 
 def export_dataset(project, target, job_root, progress, options=None):
-    from .repositories import RepositoryTransaction
+    from .repositories import RepositoryTransaction, prepare_export
+    from .wholebody import prepare_project, schema_name
+    options = dict(options or {})
+    if schema_name(options)!='legacy':
+        preview = prepare_export(project,target,options)
+        if not preview['quality']['ready']:
+            raise EditError('먼저 기존 누락 구간의 보정/제외를 선택하세요. annotation은 유지됩니다.')
+        options['_target'] = str(target)
+        project,options = prepare_project(project,job_root,options,progress)
     with RepositoryTransaction(project, target, job_root, options) as transaction:
         result = _write_dataset(transaction.selection, transaction.staging, job_root, progress, transaction)
         # The last cancellation point is before the short directory swap.

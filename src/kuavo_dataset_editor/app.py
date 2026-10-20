@@ -256,10 +256,8 @@ def create_app(workspace, allowed_roots=()):
         for frame in range(0, n, step):
             try:
                 row = a.row(episode, frame, cameras=False, validate=False)
-                values = {k: [float(x) if np.isfinite(x) else None for x in np.asarray(v).reshape(-1)] for k, v in row.items() if np.asarray(v).dtype.kind in "fibu"}
-                for key, mask_key in source.get("validity_masks", {}).items():
-                    if not bool(np.asarray(row.get(mask_key, [False])).reshape(-1)[0]):
-                        values[key] = [None]*len(values.get(key, []))
+                from .masking import visible_values
+                values = visible_values(row,a.features,source.get('validity_masks'))
                 result.append({"frame": frame, "values": values})
             except ValueError:
                 result.append({"frame": frame, "values": {}})
@@ -278,7 +276,12 @@ def create_app(workspace, allowed_roots=()):
             target = allowed(body["target"])
             allowed(target.parent)  # Backup/staging directories are siblings, not children.
         options = {"mode": mode, "repo_name": body.get("repo_name"),
+                   'schema':body.get('schema','legacy'),
                    "confirm_existing": body.get("confirm_existing") is True}
+        if body.get('rack_calibration') is not None:
+            if not isinstance(body['rack_calibration'],dict):
+                raise EditError('rack_calibration은 rack_tags 배열을 포함한 JSON 객체여야 합니다.')
+            options['rack_calibration'] = body['rack_calibration']
         if body.get('quality') is not None:
             approval = body['quality']
             if not isinstance(approval, dict):

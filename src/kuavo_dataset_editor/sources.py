@@ -193,6 +193,9 @@ class CatalogSource:
 
 
 def open_source(descriptor):
+    if descriptor.get('export_derivation'):
+        from .wholebody import WholeBodySource
+        return WholeBodySource(descriptor)
     return LeRobotSource(descriptor["path"]) if descriptor["kind"] == "lerobot" else CatalogSource(descriptor["path"])
 
 

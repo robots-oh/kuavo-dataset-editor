@@ -135,3 +135,16 @@ Torch 2.11.0+cpu, torchvision 0.26.0+cpu, torchcodec 0.11.0, 고정 LeRobot 0.6.
 합성 데이터 20프레임·2개 episode를 H.264로 Export하고 공식 로더로 다시 읽었다.
 실제 annotation이나 원본 bag을 수정하는 테스트는 하지 않았다. 모든 실제 bag의 전체 Export를
 검증했다는 뜻은 아니다. 설치에 sudo/APT 또는 ROS/CUDA 변경은 사용하지 않았다.
+# 2026-10-20: Whole-body schema / numeric missing-label codes
+
+Small synthetic ROS1 bags exercise state24/action23, per-joint names, bool validity,
+uint8 missing reasons, torso command present/absent, absent rack calibration, raw multi-tag
+anchors outside selected clips, receipt/header timestamp separation, base_footprint → base_link,
+and ignoring box tag 7. Catalogs and annotation remain unchanged; job-local derivation is reused.
+
+The bounded official-writer smoke exports five frames, appends three, and re-exports three
+from the finished dataset. Official loader reopens values/masks and masked-only normalization
+stats, including dimensions with no labels. Existing legacy export/episode-resume/repository
+tests are also exercised. No robot services, real collection, full production export or
+GR00T training is started by these tests. Training mask wiring remains an explicit consumer
+integration, documented in [WHOLEBODY_SCHEMA.md](WHOLEBODY_SCHEMA.md).

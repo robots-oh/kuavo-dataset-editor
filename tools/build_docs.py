@@ -16,6 +16,7 @@ PAGES = [
     ("docs/DATA_IMPORT.md", "파일 선택 · SSH 가져오기"),
     ("docs/VISUAL_GUIDE.md", "화면으로 따라 하기"),
     ("docs/DATASET_REPOSITORIES.md", "Dataset 생성·추가·수정"),
+    ("docs/WHOLEBODY_SCHEMA.md", "Torso·랙 state / action·mask"),
     ("docs/HUGGING_FACE.md", "Hugging Face 업로드"),
     ("docs/LEROBOT_COMPATIBILITY.md", "LeRobot 버전·업데이트"),
     ("docs/ARCHITECTURE.md", "구조"),

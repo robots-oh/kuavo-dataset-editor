@@ -18,7 +18,7 @@
     {"key": "action.base", "topic": "/cmd_vel", "fields": ["linear.x", "linear.y", "angular.z"], "size": 3, "unit": "m/s,m/s,rad/s", "method": "previous", "required": false},
     {"key": "observation.base", "topic": "/odom", "fields": ["pose.pose.position.x", "pose.pose.position.y", "pose.pose.orientation.x", "pose.pose.orientation.y", "pose.pose.orientation.z", "pose.pose.orientation.w"], "size": 6, "unit": "m,m,quaternion_xyzw", "method": "nearest", "required": false}
   ],
-  "event_topics": ["/tag_detections", "/tf", "/tf_static", "/quest_joystick_data", "/quest_joystick_data_clutch", "/vr_capture/session_event", "/quest3/triger_arm_mode", "/grasp_event", "/cmd_torso_vel", "/torso_open_loop_state"],
+  "event_topics": ["/tag_detections", "/rwh/tag_detections", "/rwh/rack_pose", "/rwh/robot_pose", "/rwh/marker_localization/status", "/dataset/base_pose_in_rack", "/dataset/base_pose_in_rack/status", "/tf", "/tf_static", "/quest_joystick_data", "/quest_joystick_data_clutch", "/vr_capture/session_event", "/quest3/triger_arm_mode", "/grasp_event", "/cmd_torso_vel", "/torso_open_loop_state"],
   "tag_id": 7,
   "tag_size_m": 0.04,
   "notes": "No idle/failure/A-off removal. Missing optional topic is omitted; missing samples are marked invalid, never filled as valid. Base and gripper use separate named features, not an assumed policy action vector."
