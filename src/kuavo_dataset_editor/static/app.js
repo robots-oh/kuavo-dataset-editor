@@ -9,6 +9,8 @@ import {
   nextTaskRange,
   snapBoundary,
   dragSelectionRange,
+  resizeClipRange,
+  shortRangeWarning,
 } from "./ranges.mjs";
 const $ = (id) => document.getElementById(id);
 let project = null,
@@ -28,6 +30,7 @@ let signalData = [],
 let selectedImportPaths = [];
 let annotationTrack='step';
 let annotationReady=false;
+let autoRangeEnd=true;
 const annotationDrafts={step:'',goal:''};
 const colors = [
   "#377b74",
@@ -106,6 +109,7 @@ function setAnnotationTrack(track) {
     annotationDrafts[annotationTrack]=$('task').value;annotationTrack=track;selected=null;
     $('task').value=annotationDrafts[track];$('goalIncludeUnlabeled').checked=false;
     $('clipMode').textContent=track==='goal'?'새 Goal 구간':'새 Step 구간';
+    beginAutomaticRange();
   }
   renderTrackControls();updatePresetSelection();renderTimeline();renderClips();
   return true;
@@ -115,6 +119,7 @@ function beginGoal(draft) {
   if(!setAnnotationTrack('goal'))return;
   selected=null;
   $('task').value=draft.instruction;$('startFrame').value=draft.start;$('endFrame').value=draft.end;
+  autoRangeEnd=false;
   $('goalIncludeUnlabeled').checked=false;$('clipMode').textContent=`Goal 초안 · Step ${draft.steps}개 · 아직 저장되지 않음`;
   updatePresetSelection();renderTimeline();renderClips();
   toast('Goal 초안입니다. 범위·문장을 확인하고 새 Goal에 적용을 누르세요. Step은 변경되지 않았습니다.');
@@ -255,6 +260,7 @@ function render() {
     }),
   );
   if (!selected) {
+    autoRangeEnd=true;
     const draft = defaultTaskRange(
       clips(),
       frame,
@@ -306,8 +312,11 @@ function renderTimeline() {
   }));
 }
 function renderClips() {
-  if(!episode()) { $('clipList').replaceChildren();$('exclusionList').replaceChildren();return; }
+  if(!episode()) { $('clipList').replaceChildren();$('exclusionList').replaceChildren();$('annotationWarnings').hidden=true;return; }
   const list = clips();
+  const short = list.filter(c=>shortRangeWarning(c.start_frame,c.end_frame,source().fps));
+  $('annotationWarnings').hidden=!short.length;
+  $('annotationWarnings').textContent=`주의: 0.5초 미만 annotation 조각 ${short.length}개 (1프레임 ${short.filter(c=>c.end_frame-c.start_frame===1).length}개). 목록의 ‘짧음’ 구간을 확인하세요. 자동 수정·Export 차단은 하지 않습니다. 같은 task가 이어지는 조각은 Export에서 연속될 수 있습니다.`;
   $("clipList").replaceChildren(
     ...list.map((c) => {
       const row = document.createElement("div");
@@ -322,6 +331,8 @@ function renderClips() {
       text.className = "text";
       text.textContent =
         project.tasks[c.task_id] + (c.new_episode ? " · 새 episode" : "");
+      const warning=shortRangeWarning(c.start_frame,c.end_frame,source().fps);
+      if(warning) {text.textContent+=` · 짧음: ${c.end_frame-c.start_frame}f`;row.title=warning;row.classList.add('short-annotation');}
       row.append(sw, t, text);
       const linked=annotationTrack==='step'?coveringGoal(project,c):null;
       if(annotationTrack==='step') {
@@ -354,6 +365,7 @@ function selectClip(id) {
   const c = clips().find((x) => x.id === id);
   if (!c) return;
   selected = id;
+  autoRangeEnd=false;
   $("startFrame").value = c.start_frame;
   $("endFrame").value = c.end_frame;
   $("task").value = project.tasks[c.task_id];
@@ -373,6 +385,18 @@ function deselect() {
   renderTimeline();
   renderClips();
 }
+function beginAutomaticRange(start = null) {
+  if (!episode()) return;
+  autoRangeEnd=true;
+  const draft=start===null
+    ? defaultTaskRange(clips(),frame,episode().num_frames,source().fps)
+    : nextTaskRange(start,frame,episode().num_frames);
+  $('startFrame').value=draft.start;$('endFrame').value=draft.end;
+}
+function syncAutomaticEnd() {
+  if (autoRangeEnd && !selected && episode())
+    $('endFrame').value=nextTaskRange(Number($('startFrame').value),frame,episode().num_frames).end;
+}
 function renderSelection() {
   if (!episode()) return;
   const [a, b] = range();
@@ -380,11 +404,21 @@ function renderSelection() {
   $("selection").style.width =
     (Math.max(0, b - a) / episode().num_frames) * 100 + "%";
   $("selectionText").textContent = `[${a}, ${b}) · ${time(a)}–${time(b)}`;
-  $("startSeconds").value = (a / source().fps).toFixed(4);
-  $("endSeconds").value = (b / source().fps).toFixed(4);
+  // Playback may update the automatic end; never replace text being typed.
+  if(document.activeElement!==$('startSeconds')) $("startSeconds").value = (a / source().fps).toFixed(4);
+  if(document.activeElement!==$('endSeconds')) $("endSeconds").value = (b / source().fps).toFixed(4);
+  $('followCursorEnd').checked=autoRangeEnd && !selected;
+  $('followCursorEnd').disabled=!!selected;
+  const warning=shortRangeWarning(a,b,source().fps);
+  $('shortRangeWarning').hidden=!warning;$('shortRangeWarning').textContent=warning;
+  $('rangeMode').textContent=selected?'기존 구간 · 재생해도 범위는 바뀌지 않습니다.'
+    : autoRangeEnd ? (b<=a?'끝점 자동 · 시작 이후로 재생/이동하면 범위가 늘어납니다.':'끝점 자동 · 현재 재생 프레임까지 선택합니다.')
+    : '끝점 고정 · 직접 지정한 범위를 유지합니다.';
 }
 function renderClock() {
   if (!episode()) return;
+  syncAutomaticEnd();
+  renderSelection();
   $("seek").value = frame;
   $("clock").textContent =
     `${time(frame)} · frame ${frame}/${episode().num_frames - 1}`;
@@ -522,7 +556,9 @@ function currentRange() {
     a >= b ||
     b > episode().num_frames
   )
-    throw Error("시작 < 끝 범위로 프레임을 선택하세요.");
+    throw Error(autoRangeEnd && !selected && b<=a
+      ? "다음 구간의 시작 이후로 영상을 재생/이동하세요. 아직 선택된 프레임이 없습니다."
+      : "시작 < 끝 범위로 프레임을 선택하세요.");
   return {
     source_id: sourceId,
     episode_id: episodeId,
@@ -531,6 +567,7 @@ function currentRange() {
   };
 }
 async function applyLabel() {
+  syncAutomaticEnd();
   const r = currentRange(),
     overlap = clips().some(
       (c) => c.start_frame < r.end_frame && c.end_frame > r.start_frame,
@@ -547,14 +584,15 @@ async function applyLabel() {
     new_episode: $("newEpisode").checked,
     include_unlabeled:$('goalIncludeUnlabeled').checked,
   });
+  const warning=shortRangeWarning(r.start_frame,r.end_frame,source().fps);
+  if(warning) toast('저장됨 · '+warning);
   deselect();
-  const draft = nextTaskRange(r.end_frame, frame, episode().num_frames);
-  $("startFrame").value = draft.start;
-  $("endFrame").value = draft.end;
+  beginAutomaticRange(r.end_frame);
+  const nextStart=Number($('startFrame').value);
   $("clipMode").textContent =
-    draft.start === episode().num_frames
+    nextStart === episode().num_frames
       ? "마지막 프레임까지 지정했습니다. 필요하면 기존 구간을 수정하세요."
-      : `다음 task · 직전 끝점 ${time(draft.start)}부터`;
+      : `다음 task · 직전 끝점 ${time(nextStart)}부터`;
   renderSelection();
 }
 async function updateClip() {
@@ -566,6 +604,8 @@ async function updateClip() {
     new_episode: $("newEpisode").checked,
     include_unlabeled:$('goalIncludeUnlabeled').checked,
   });
+  const [a,b]=range(),warning=shortRangeWarning(a,b,source().fps);
+  if(warning) toast('수정됨 · '+warning);
 }
 async function history(backward) {
   const from = backward ? undo : redo,
@@ -603,8 +643,11 @@ $("timeline").onpointerdown = (e) => {
   playing = false;
   deselect();
   seek(start);
+  let moved=false;
   const move = (m) => {
-    const point = dragPoint(m);
+    if(!moved && Math.abs(m.clientX-e.clientX)<3)return;
+    moved=true;autoRangeEnd=false;
+    const point = dragPoint(m, null, start);
     const draft = dragSelectionRange(start, point.frame, episode().num_frames);
     $("startFrame").value = draft.start;
     $("endFrame").value = draft.end;
@@ -622,18 +665,17 @@ $("timeline").onpointerdown = (e) => {
   window.addEventListener("pointerup", up);
   window.addEventListener("pointercancel", up);
 };
-function dragPoint(event, excludedClipId = null) {
+function dragPoint(event, excludedClipId = null, excludedBoundary = null) {
+  return snapBoundary(pos(event),dragBoundaries(excludedClipId).filter(f=>f!==excludedBoundary),
+    $("timeline").getBoundingClientRect().width / episode().num_frames,event.altKey);
+}
+function dragBoundaries(excludedClipId = null) {
   const boundaries = [0, episode().num_frames];
   for (const clip of [...clips('step'),...clips('goal')]) {
     if (clip.id !== excludedClipId)
       boundaries.push(clip.start_frame, clip.end_frame);
   }
-  return snapBoundary(
-    pos(event),
-    boundaries,
-    $("timeline").getBoundingClientRect().width / episode().num_frames,
-    event.altKey,
-  );
+  return boundaries;
 }
 function showSnap(point) {
   const active = !!point?.snapped;
@@ -655,11 +697,15 @@ function clipPointer(e, c, el,layer) {
   if (!edge) return;
   el = $(layer==='goal'?'goalTrack':'track').querySelector(`[data-id="${c.id}"]`);
   const old = [c.start_frame, c.end_frame];
+  const anchorFrame=pos(e);
+  let moved=false;
   const move = (m) => {
-    const point = dragPoint(m, c.id),
-      f = point.frame;
-    $("startFrame").value = edge === "start" ? Math.min(f, old[1] - 1) : old[0];
-    $("endFrame").value = edge === "end" ? Math.max(f, old[0] + 1) : old[1];
+    if(!moved && Math.abs(m.clientX-e.clientX)<3)return;
+    moved=true;
+    const raw=(edge==='end'?old[1]:old[0])+pos(m)-anchorFrame;
+    const point=resizeClipRange(old[0],old[1],edge,raw,dragBoundaries(c.id),
+      $('timeline').getBoundingClientRect().width/episode().num_frames,episode().num_frames,m.altKey);
+    $("startFrame").value=point.start;$("endFrame").value=point.end;
     const [a, b] = range();
     el.style.left = (a / episode().num_frames) * 100 + "%";
     el.style.width = ((b - a) / episode().num_frames) * 100 + "%";
@@ -681,6 +727,7 @@ function clipPointer(e, c, el,layer) {
       return;
     }
     try {
+      if(!moved || (Number($('startFrame').value)===old[0] && Number($('endFrame').value)===old[1]))return;
       await updateClip();
     } catch (err) {
       toast(err.message);
@@ -978,8 +1025,12 @@ async function prepareExport() {
   }
   if (!p.kept_frames) throw Error("먼저 task가 있는 clip을 만드세요.");
   if (project.project_id !== projectId) throw Error("프로젝트가 바뀌었습니다. 다시 Export하세요.");
+  const shortExportWarning=p.short_annotations?.length
+    ? `주의: 0.5초 미만 annotation 조각 ${p.short_annotations.length}개 (1프레임 ${p.short_annotations.filter(c=>c.frames===1).length}개). 의도한 범위인지 확인하세요. 자동 수정·Export 차단은 하지 않습니다.\n` : '';
+  if(shortExportWarning) toast(shortExportWarning);
+  const confirmExport=message=>confirm(shortExportWarning+message);
   if (
-    !confirm(
+    !confirmExport(
       `${mode === "new" ? "새 생성" : mode === "append" ? "기존에 추가" : "기존 수정"}: ${p.repo_id}\n${p.target}\n\nInstruction 트랙: ${p.annotation_track==='goal'?'Goal · 전체 작업':'Step · 세부 동작'}\n출력 구성: ${p.schema}\n${p.schema !== 'legacy' ? '미기록 목표·상태는 validity=0으로 저장합니다. 학습 mask 연결이 필요합니다.\n랙 보정/다중 태그/TF가 없으면 랙 상대 위치도 미기록 처리됩니다.\n' : ''}현재 선택 ${p.kept_frames} frames (${(p.kept_frames / p.fps).toFixed(2)}초)\n미지정·승인된 누락 제외 ${p.dropped_frames} frames\n최종 ${p.output_frames} frames / ${p.output_episodes} episodes\n누락 구간 처리 ${p.quality?.issues.length || 0}건 (선택 내역 기록)\n${mode === "append" ? `기존 ${p.existing_frames} frames는 유지합니다. 중복 구간은 자동 제거하지 않습니다.\n` : ""}${mode !== "new" ? "기존 폴더는 복구본으로 보존합니다.\n" : ""}\n저장본 r${p.project_revision}으로 진행할까요?`,
     )
   )
@@ -1153,27 +1204,36 @@ $("zoom").oninput = () => {
 };
 $("markIn").onclick = () => {
   $("startFrame").value = frame;
+  syncAutomaticEnd();
   renderSelection();
 };
 $("markOut").onclick = () => {
+  autoRangeEnd=false;
   $("endFrame").value = frame + 1;
   renderSelection();
 };
-$("startFrame").oninput = renderSelection;
-$("endFrame").oninput = renderSelection;
+$("startFrame").oninput = () => {syncAutomaticEnd();renderSelection();};
+$("endFrame").oninput = () => {autoRangeEnd=false;renderSelection();};
 for (const [seconds, frames] of [
   ["startSeconds", "startFrame"],
   ["endSeconds", "endFrame"],
 ]) {
+  if(frames==='endFrame') $(seconds).oninput=()=>{autoRangeEnd=false;renderSelection();};
   $(seconds).onchange = () => {
     if (!source()) return;
+    if(frames==='endFrame') autoRangeEnd=false;
     $(frames).value = Math.ceil(Number($(seconds).value) * source().fps - 1e-9);
+    syncAutomaticEnd();
     renderSelection();
   };
 }
 $("apply").onclick = action(applyLabel);
 $("update").onclick = action(updateClip);
-$("clearClip").onclick = deselect;
+$("clearClip").onclick = () => {deselect();beginAutomaticRange();renderSelection();};
+$('followCursorEnd').onchange = () => {
+  if(selected)return;
+  autoRangeEnd=$('followCursorEnd').checked;syncAutomaticEnd();renderSelection();
+};
 $("exclude").onclick = action(async () => {
   if(!confirm('선택 구간을 Step·Goal Export 모두에서 제외합니다. Goal 범위를 넓혀도 다시 포함되지 않습니다. 진행할까요?'))return;
   await edit("exclude", currentRange());

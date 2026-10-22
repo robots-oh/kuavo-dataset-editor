@@ -58,3 +58,14 @@ def test_revision_and_split_leakage(tmp_path):
     p["source_splits"] = {"a": "train", "alias": "validation"}
     with pytest.raises(EditError):
         compile_selection(p)
+
+
+def test_short_annotations_warn_without_changing_selection():
+    p = project()
+    for a, b, task in [(30, 31, "one-frame"), (31, 45, "short"), (45, 60, "half-second")]:
+        p = label(p, "a", 0, a, b, task)
+    before = deepcopy(p)
+    plan = compile_selection(p)
+    assert p == before
+    assert plan["kept_frames"] == 30 and plan["num_episodes"] == 1
+    assert [(w["task"], w["frames"]) for w in plan["short_annotations"]] == [("one-frame", 1), ("short", 14)]

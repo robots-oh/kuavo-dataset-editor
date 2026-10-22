@@ -181,6 +181,7 @@
             <span id="coverage" class="muted"></span>
           </div>
           <div id="clipList"></div>
+          <p id="annotationWarnings" class="annotation-warning" role="status" hidden></p>
           <details><summary>데이터 제외 구간 (Step·Goal 공통)</summary><div id="exclusionList"></div></details>
         </section>
         <section class="jobs">
@@ -192,9 +193,11 @@
         <h2 id="annotationTitle">Step · 선택 구간</h2>
         <p id="clipMode" class="muted">새 구간</p>
         <p class="muted">
-          다음 task는 직전 끝점부터 시작합니다. I·시간 입력·드래그로 직접 바꿀
-          수 있습니다.
+          다음 task는 직전 끝점부터 시작합니다. 영상을 보고 적용하면 현재 위치까지 저장됩니다.
+          끝점을 직접 입력하거나 O·드래그로 지정하면 고정됩니다. 기존 구간은 자동 변경하지 않습니다.
         </p>
+        <label class="check"><input id="followCursorEnd" type="checkbox" checked />새 구간 끝점 자동 · 재생 위치까지</label>
+        <p id="rangeMode" class="muted" role="status"></p>
         <label
           >시작 시간 (초)<input
             id="startSeconds"
@@ -227,6 +230,7 @@
             value="1"
         /></label>
         <button id="markOut">현재 프레임까지 선택 · O</button>
+        <p id="shortRangeWarning" class="annotation-warning" role="status" hidden></p>
         <label
           >Task 문장<textarea
             id="task"

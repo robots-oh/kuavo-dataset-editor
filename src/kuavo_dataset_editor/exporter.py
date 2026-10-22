@@ -252,6 +252,7 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                              "export_runtime": runtime.describe(),
                                              "frame_drop_policy": "block_until_encoded",
                                              "round_trip": "official_loader_first_last",
+                                             "short_annotations": plan["short_annotations"],
                                              "unlabeled_removed": plan["dropped_frames"],
                                              "quality_issues": len(settings['quality']['issues']),
                                              "originals_preserved": True})

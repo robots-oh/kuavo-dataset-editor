@@ -92,6 +92,7 @@ def compile_selection(project):
         assignments[identity] = split
     order = {sid: i for i, sid in enumerate(sources)}
     runs, fps_values, identities = [], set(), set()
+    short_annotations = []
     clips = sorted(project["clips"], key=lambda c: (order.get(c["source_id"], -1), c.get("episode_id", 0), c["start_frame"]))
     previous = None
     for c in clips:
@@ -108,6 +109,12 @@ def compile_selection(project):
         task = project["tasks"].get(c["task_id"], "").strip()
         if not task:
             raise EditError("task가 없는 clip입니다.")
+        if (end - start) / source["fps"] < 0.5:
+            short_annotations.append({"clip_id": c["id"], "source_id": c["source_id"],
+                                      "episode_id": c.get("episode_id", 0),
+                                      "start_frame": start, "end_frame": end,
+                                      "frames": end - start, "duration_s": (end - start) / source["fps"],
+                                      "task": task})
         if previous and source_key(previous) == source_key(c) and previous["end_frame"] > start:
             raise EditError("clip이 겹칩니다. 교체하거나 경계를 조절하세요.")
         if not previous or source_key(previous) != source_key(c) or previous["end_frame"] != start or c.get("new_episode"):
@@ -124,4 +131,4 @@ def compile_selection(project):
     total = sum(e["num_frames"] for s in sources.values() for e in s["episodes"])
     return {"runs": runs, "num_episodes": len(runs), "kept_frames": kept,
             "dropped_frames": total - kept, "fps": next(iter(fps_values), None),
-            "project_revision": project["revision"]}
+            "project_revision": project["revision"], "short_annotations": short_annotations}
