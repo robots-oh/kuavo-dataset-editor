@@ -1,5 +1,5 @@
 /* No build step, no third-party CDN, no robot commands. */
-import { TASK_PRESETS } from "./tasks.mjs";
+import { setupTaskPresets } from "./task-presets.mjs";
 import { setupFilePicker } from "./file-picker.mjs";
 import { setupQualityReview } from "./quality-review.mjs";
 import { setupDataInspector } from "./data-inspector.mjs";
@@ -82,33 +82,12 @@ function taskOptions() {
       .map(([id, t]) => new Option(t, id)),
   ];
 }
-function renderTaskPresets() {
-  $("taskPresets").replaceChildren(
-    ...TASK_PRESETS.map((preset) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = preset.label;
-      button.title = preset.instruction;
-      button.dataset.preset = preset.id;
-      button.setAttribute("aria-pressed", "false");
-      button.onclick = () => {
-        $("task").value = preset.instruction;
-        updatePresetSelection();
-      };
-      return button;
-    }),
-  );
-  updatePresetSelection();
-}
+const taskPresetPicker = setupTaskPresets({
+  input: $("task"), presets: $("taskPresets"),
+  locationPanel: $("boxPickOptions"), locations: $("boxPickPresets"),
+});
 function updatePresetSelection() {
-  const instruction = $("task").value.trim();
-  for (const button of $("taskPresets").children) {
-    const preset = TASK_PRESETS.find((p) => p.id === button.dataset.preset);
-    button.setAttribute(
-      "aria-pressed",
-      String(preset.instruction === instruction),
-    );
-  }
+  taskPresetPicker.sync();
 }
 async function api(path, body, method = "POST") {
   const r = await fetch(
@@ -1180,7 +1159,6 @@ document.addEventListener("keydown", (e) => {
     (e.shiftKey ? $("redo") : $("undo")).click();
   }
 });
-renderTaskPresets();
 action(async () => {
   const cfg = await api("/api/config");
   $("profile").value = JSON.stringify(cfg.bag_profile, null, 2);

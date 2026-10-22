@@ -230,8 +230,13 @@
           role="group"
           aria-label="Task instruction 후보"
         ></div>
+        <div id="boxPickOptions" class="box-pick-options" hidden>
+          <p class="muted">집을 상자 위치를 선택하세요. 선택하면 위 Task 문장에 입력됩니다.</p>
+          <div id="boxPickPresets" class="task-presets" role="group" aria-label="집을 상자 위치"></div>
+          <p class="muted">왼쪽/오른쪽은 랙을 정면에서 바라본 기준입니다. 상단 = top 선반.</p>
+        </div>
         <p class="muted">
-          후보 클릭은 문장 입력만 합니다. 구간 저장은 아래 적용 버튼을 누르세요.
+          ‘상자 집기’는 위치를 고른 뒤 문장이 입력됩니다. 구간 저장은 아래 적용/수정 버튼을 누르세요.
         </p>
         <select id="taskReuse" aria-label="기존 task 재사용">
           <option value="">기존 task 선택…</option>

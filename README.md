@@ -195,16 +195,23 @@ scp leju_kuavo@<UP_PC_IP>:/absolute/path/trial.bag /data/robot-datasets/
 ## 포함·제외와 episode 규칙
 
 Task 입력란 아래 후보 버튼을 클릭하면 영어 instruction이 입력된다.
+**상자 집기**는 먼저 세부 위치 4개를 펼친다. 위치를 고르면 그 위치를 포함한 문장이 입력된다.
+왼쪽/오른쪽은 **랙을 정면에서 바라본 기준**이며, 카메라 화면의 픽셀 방향이나 로봇 현재 방향 기준이 아니다.
 클릭만으로 기존 라벨이 바뀌거나 구간이 저장되지는 않는다. 새 구간 적용/선택 clip 수정으로 저장한다.
 
 | 후보 | Instruction |
 |---|---|
 | 랙 정렬 | Align the robot with the rack. |
-| 상자 집기 | Pick up the box from the rack. |
+| 상자 집기 → 중간 선반 · 왼쪽 | Pick up the box from the left side of the middle shelf of the rack. |
+| 상자 집기 → 중간 선반 · 오른쪽 | Pick up the box from the right side of the middle shelf of the rack. |
+| 상자 집기 → 상단 선반 · 왼쪽 | Pick up the box from the left side of the top shelf of the rack. |
+| 상자 집기 → 상단 선반 · 오른쪽 | Pick up the box from the right side of the top shelf of the rack. |
 | conveyor 앞으로 옮기기 | Carry the box to the front of the conveyor. |
 | 상자 놓기 | Put down the box. |
 
 ‘상자 놓기’는 목적지를 임의로 제한하지 않는 문장으로 둔다. 기존 수동 문장과 재사용 목록도 유지된다.
+기존 `Pick up the box from the rack.` 라벨은 자동 변경하지 않는다. 기존 구간을 구체화하려면
+clip 선택 → 상자 집기 → 위치 선택 → **선택 clip 수정**을 누른다. Export task 문장에도 선택한 위치가 그대로 들어간다.
 
 - 라벨이 없는 구간은 export에서 제외한다. 빈 task를 자동으로 직전 task로 채우지 않는다.
 - 연속된 라벨 구간은 기본적으로 한 episode다. 같은 episode 안에서도 task가 프레임별로 바뀐다.

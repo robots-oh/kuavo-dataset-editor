@@ -451,6 +451,11 @@ canvas {
   border-color: var(--accent);
   color: #e5fff5;
 }
+.box-pick-options {
+  border-left: 2px solid var(--accent);
+  margin-top: 8px;
+  padding: 0 0 0 8px;
+}
 [hidden] {
   display: none !important;
 }
