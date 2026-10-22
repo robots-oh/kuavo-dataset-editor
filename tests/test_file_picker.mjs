@@ -62,6 +62,9 @@ const api = async (path, body) => {
   if (path.startsWith("/api/files?")) return listing;
   if (path === "/api/ssh/hosts") return { hosts: ["fixture-host"],download_dir:'/ssd/bags',transport:'auto' };
   if (path === "/api/ssh/browse") return listing;
+  if (path === '/api/folders') return {roots:['/bags','/ssd']};
+  if (path.startsWith('/api/folders?')) return {path:'/ssd/new-bags',entries:[],total:0,parent:'/ssd'};
+  if (path === '/api/ssh/settings') return {download_dir:body.download_dir || '/workspace/downloads',transport:body.transport,server_hostname:'editor-server'};
   throw Error(path);
 };
 const picker = setupFilePicker({
@@ -92,6 +95,22 @@ assert.ok(
     (c) => c.path === "/api/ssh/browse" && c.body.host === "fixture-host",
   ),
 );
+// Choosing the download destination must preserve selected remote bag files.
+await picker.open('ssh');
+el('pickerHost').value='fixture-host'; el('pickerHost').onchange();
+await el('pickerGo').onclick(); el('pickerAll').onclick();
+const change=el('pickerDownloadBrowse').onclick();
+assert.equal(el('pickerUse').disabled,true);
+await new Promise(resolve=>setImmediate(resolve));
+el('downloadFolderUse').onclick(); await change;
+assert.equal(el('pickerDownloadDir').value,'/ssd/new-bags');
+assert.equal(el('pickerUse').disabled,false);
+assert.equal(remote.length,1); // Folder selection did not start an import.
+await el('pickerUse').onclick();
+assert.equal(remote[1].options.download_dir,'/ssd/new-bags');
+assert.deepEqual(remote[1].paths,['/bags/one.bag','/bags/two.bag']);
+await el('pickerDownloadDefault').onclick();
+assert.equal(el('pickerDownloadDir').value,'/workspace/downloads');
 console.log(
   "PASS: local multi-selection stages paths; SSH selection starts explicit download/import callback",
 );

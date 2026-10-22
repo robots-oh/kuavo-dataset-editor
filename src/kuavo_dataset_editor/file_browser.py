@@ -4,7 +4,7 @@ from pathlib import Path
 from .core import EditError
 
 
-def browse_local(roots, path=None, query="", offset=0, limit=200):
+def browse_local(roots, path=None, query="", offset=0, limit=200, *, directories_only=False):
     roots = list(dict.fromkeys(Path(p).expanduser().resolve() for p in roots))
     def permitted(p):
         return any(p.is_relative_to(root) for root in roots)
@@ -30,7 +30,7 @@ def browse_local(roots, path=None, query="", offset=0, limit=200):
                     info = (resolved / "meta/info.json").resolve()
                     kind = "dataset" if permitted(info) and info.is_file() else "directory"
                     size = None
-                elif resolved.is_file() and child.suffix.lower() == ".bag":
+                elif not directories_only and resolved.is_file() and child.suffix.lower() == ".bag":
                     kind, size = "bag", resolved.stat().st_size
                 else:
                     continue

@@ -1,6 +1,7 @@
 """Local browser API; all expensive work runs in isolated worker processes."""
 import io
 import json
+import socket
 import threading
 from functools import lru_cache
 from pathlib import Path
@@ -86,13 +87,52 @@ def create_app(workspace, allowed_roots=()):
         from .file_browser import browse_local
         return browse_local(roots, path, query[:256], offset)
 
+    @app.get('/api/folders')
+    def browse_folders(path: str | None = None, query: str = '', offset: int = 0):
+        from .file_browser import browse_local
+        return browse_local(roots,path,query[:256],offset,directories_only=True)
+
+    def transfer_settings():
+        settings = workspace / 'ssh-transfer-settings.json'
+        saved = json.loads(settings.read_text()) if settings.exists() else {}
+        return {'download_dir':saved.get('download_dir',str(workspace/'downloads')),
+                'default_download_dir':str(workspace/'downloads'),
+                'server_hostname':socket.gethostname(), 'transport':saved.get('transport','auto')}
+
+    def validate_transfer_settings(body):
+        settings = transfer_settings()
+        choice = body.get('download_dir',settings['download_dir'])
+        if not isinstance(choice,str):
+            raise EditError('다운로드 폴더는 경로 문자열로 지정하세요.')
+        download_dir = allowed(choice.strip() or workspace/'downloads')
+        custom = download_dir != workspace/'downloads'
+        if custom and not download_dir.is_dir():
+            raise EditError('다운로드 폴더가 없습니다. SSD를 연결하고 기존 폴더를 선택하세요.')
+        if download_dir.exists() and not download_dir.is_dir():
+            raise EditError('다운로드 경로는 파일이 아닌 폴더여야 합니다.')
+        transport = body.get('transport',settings['transport'])
+        if transport not in ('auto','rsync','stream'):
+            raise EditError('지원하지 않는 SSH 전송 방식입니다.')
+        return download_dir,custom,transport
+
+    def save_transfer_settings(download_dir,transport):
+        from .sources import write_json
+        temporary = workspace / ('.ssh-transfer-'+uuid4().hex+'.tmp')
+        write_json(temporary, {'download_dir':str(download_dir),'transport':transport})
+        temporary.replace(workspace / 'ssh-transfer-settings.json')
+
+    @app.post('/api/ssh/settings')
+    def set_ssh_settings(body: dict):
+        # Persist a choice without starting a download or changing existing jobs.
+        with api_lock:
+            download_dir,_,transport = validate_transfer_settings(body)
+            save_transfer_settings(download_dir,transport)
+            return transfer_settings()
+
     @app.get("/api/ssh/hosts")
     def ssh_hosts():
         from .ssh_sources import host_aliases
-        settings = workspace / 'ssh-transfer-settings.json'
-        saved = json.loads(settings.read_text()) if settings.exists() else {}
-        return {'hosts': host_aliases(), 'download_dir': saved.get('download_dir',str(workspace/'downloads')),
-                'transport': saved.get('transport','auto')}
+        return {'hosts':host_aliases(), **transfer_settings()}
 
     @app.post("/api/ssh/browse")
     def ssh_browse(body: dict):
@@ -107,19 +147,9 @@ def create_app(workspace, allowed_roots=()):
         paths = body.get("paths")
         if not isinstance(paths, list) or not 1 <= len(paths) <= 100 or any(not isinstance(p, str) or not p.startswith("/") or not p.lower().endswith(".bag") for p in paths):
             raise EditError("원격 .bag 파일을 1–100개 선택하세요.")
-        settings = ssh_hosts()
-        choice = body.get('download_dir',settings['download_dir'])
-        download_dir = allowed(choice or workspace/'downloads')
-        custom_download_dir = download_dir != workspace/'downloads'
-        if custom_download_dir and not download_dir.is_dir():
-            raise EditError('다운로드 폴더가 없습니다. SSD를 연결하고 기존 폴더를 선택하세요.')
-        transport = body.get('transport', settings['transport'])
-        if transport not in ('auto','rsync','stream'):
-            raise EditError('지원하지 않는 SSH 전송 방식입니다.')
-        from .sources import write_json
-        temporary = workspace / ('.ssh-transfer-'+uuid4().hex+'.tmp')
-        write_json(temporary, {'download_dir':str(download_dir),'transport':transport})
-        temporary.replace(workspace / 'ssh-transfer-settings.json')
+        with api_lock:
+            download_dir,custom_download_dir,transport = validate_transfer_settings(body)
+            save_transfer_settings(download_dir,transport)
         return jobs.start("ssh-import", {"host": host, "project_id": pid,
             "items": [{"source_id": uuid4().hex, "path": p} for p in dict.fromkeys(paths)],
             'download_dir':str(download_dir),'transport':transport,

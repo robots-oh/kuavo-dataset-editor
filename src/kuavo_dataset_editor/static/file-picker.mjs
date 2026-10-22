@@ -1,7 +1,42 @@
 /* Shared local/SSH data picker. All filenames are rendered as text, never HTML. */
+import { setupFolderPicker } from './folder-picker.mjs';
 export function setupFilePicker({ api, onSelect, onSSH, notify }) {
   const $ = (id) => document.getElementById(id);
   const dialog = $("filePicker");
+  const folderPicker = setupFolderPicker({api});
+  const storageButtons=['pickerDownloadBrowse','pickerDownloadSave','pickerDownloadDefault'];
+  let storageBusy=false;
+  function storageContext(response) {
+    $('pickerDownloadContext').textContent =
+      `저장되는 컴퓨터: ${response.server_hostname || '에디터 실행 PC'} · 기본 위치: ${response.default_download_dir || 'workspace/downloads'}. 브라우저를 여는 PC의 폴더가 아닙니다.`;
+  }
+  async function saveStorage(path) {
+    const response=await api('/api/ssh/settings',{
+      download_dir:path,transport:$('pickerTransport').value || 'auto',
+    });
+    $('pickerDownloadDir').value=response.download_dir;
+    storageContext(response);
+    notify(`다음 다운로드 저장 위치를 기억했습니다: ${response.download_dir}`);
+  }
+  async function storageAction(operation) {
+    if (storageBusy) return;
+    storageBusy=true;
+    count();
+    for (const id of storageButtons) $(id).disabled=true;
+    try { await operation(); }
+    catch(error) { notify(error.message); }
+    finally {
+      storageBusy=false;
+      for (const id of storageButtons) $(id).disabled=false;
+      count();
+    }
+  }
+  $('pickerDownloadBrowse').onclick=()=>storageAction(async()=>{
+    const path=await folderPicker.open($('pickerDownloadDir').value.trim());
+    if (path!==null) await saveStorage(path);
+  });
+  $('pickerDownloadSave').onclick=()=>storageAction(()=>saveStorage($('pickerDownloadDir').value.trim()));
+  $('pickerDownloadDefault').onclick=()=>storageAction(()=>saveStorage(''));
   let mode = "local",
     host = "",
     folder = null,
@@ -21,7 +56,7 @@ export function setupFilePicker({ api, onSelect, onSSH, notify }) {
   function count() {
     $("pickerCount").textContent =
       `${selected.size}개 선택 · 폴더를 이동해도 선택은 유지됩니다.`;
-    $("pickerUse").disabled = selected.size === 0;
+    $("pickerUse").disabled = selected.size === 0 || storageBusy;
     $("pickerUse").textContent =
       mode === "ssh"
         ? `선택한 ${selected.size}개 다운로드·가져오기`
@@ -138,6 +173,7 @@ export function setupFilePicker({ api, onSelect, onSSH, notify }) {
         const response = await api("/api/ssh/hosts");
         if (token !== generation) return;
         if (!$("pickerDownloadDir").value) $("pickerDownloadDir").value = response.download_dir || '';
+        storageContext(response);
         $("pickerTransport").value = response.transport || 'auto';
         $("pickerHost").replaceChildren(
           new Option("SSH 호스트 선택…", ""),

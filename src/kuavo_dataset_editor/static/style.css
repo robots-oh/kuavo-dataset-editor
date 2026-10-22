@@ -502,6 +502,17 @@ dialog::backdrop {
   border: 1px solid var(--line);
   border-radius: 6px;
 }
+.folder-entries > button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border-radius: 0;
+  border-width: 0 0 1px;
+  padding: 11px 14px;
+}
+.download-location {
+  flex-wrap: wrap;
+}
 .file-entry {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) auto;
