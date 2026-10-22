@@ -10,7 +10,7 @@ const between=(a,b)=>sourceText.slice(sourceText.indexOf(a),sourceText.indexOf(b
 function harness() {
   const elements=new Map();
   const element=id=>{
-    if(!elements.has(id))elements.set(id,{value:'',style:{},checked:false,disabled:false,hidden:false,textContent:'',getBoundingClientRect:()=>({left:0,width:1000}),querySelector:()=>({style:{}})});
+    if(!elements.has(id))elements.set(id,{value:'',style:{},checked:false,disabled:false,hidden:false,textContent:'',replaceChildren:()=>{},getBoundingClientRect:()=>({left:0,width:1000}),querySelector:()=>({style:{}})});
     return elements.get(id);
   };
   const saved=[],listeners=new Map(),notifications=[];
@@ -90,4 +90,18 @@ function harness() {
   const point=h.run('dragPoint(pointer,null,8322)');
   assert.equal(point.frame,8438);
   console.log('PASS: dragging a new selection away from its anchor does not snap back into a one-frame range');
+}
+{
+  const h=harness(),e=h.element;
+  h.context.copy=x=>JSON.parse(JSON.stringify(x));h.context.taskOptions=()=>[];
+  h.run("let project={project_id:'p',revision:0,name:'merge',tasks:{carry:'carry'}},annotationReady=true,annotationTrack='step',undo=[],redo=[];selected='right';");
+  const merged={project_id:'p',revision:1,name:'merge',tasks:{carry:'carry'},
+    clips:[{id:'left',task_id:'carry',start_frame:7998,end_frame:8400,merged_clip_ids:['right']}]};
+  h.context.api=async()=>merged;h.context.clips=()=>merged.clips;
+  vm.runInContext(between('async function edit(operation, extra) {','function currentRange() {'),h.context);
+  e('startFrame').value=8322;e('endFrame').value=8400;
+  await h.run("edit('update_clip',{})");
+  assert.equal(h.run('selected'),'left');
+  assert.equal(Number(e('startFrame').value),7998);assert.equal(Number(e('endFrame').value),8400);
+  console.log('PASS: merge retargets the selected ID and inspector bounds, so a second edit cannot trim the earlier segment');
 }

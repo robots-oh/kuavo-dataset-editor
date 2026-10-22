@@ -25,6 +25,39 @@ def source_key(clip):
     return clip["source_id"], clip.get("episode_id", 0)
 
 
+def merge_adjacent_clips(clips, tasks):
+    """Coalesce touching identical instructions, never fill gaps or cross resets.
+
+    Retain the left ID and aliases for stale selections; frame labels are unchanged.
+    Explicit split boundaries stay editable, independently of episode boundaries.
+    """
+    result = []
+    for original in sorted(clips, key=lambda c: (*source_key(c), c["start_frame"])):
+        clip = deepcopy(original)
+        previous = result[-1] if result else None
+        text = tasks.get(clip["task_id"], "").strip()
+        if (previous and text and source_key(previous) == source_key(clip)
+                and previous["end_frame"] == clip["start_frame"]
+                and previous["id"] != clip["id"]
+                and tasks.get(previous["task_id"], "").strip() == text
+                and not clip.get("new_episode") and not clip.get("keep_boundary")
+                and bool(previous.get("include_unlabeled")) == bool(clip.get("include_unlabeled"))):
+            previous["end_frame"] = clip["end_frame"]
+            aliases = [*previous.get("merged_clip_ids", []), clip["id"], *clip.get("merged_clip_ids", [])]
+            previous["merged_clip_ids"] = list(dict.fromkeys(i for i in aliases if i != previous["id"]))
+        else:
+            result.append(clip)
+    return result
+
+
+def normalize_step_annotations(project):
+    """Pure normalization; Goal IDs still delimit distinct whole-task attempts."""
+    result = deepcopy(project)
+    if result.get("_annotation_track") != "goal":
+        result["clips"] = merge_adjacent_clips(result["clips"], result["tasks"])
+    return result
+
+
 def subtract(clips, source_id, episode_id, start, end):
     """Remove coverage, never source frames. Preserve IDs and explicit boundaries."""
     result = []
@@ -39,6 +72,7 @@ def subtract(clips, source_id, episode_id, start, end):
             result.append(left)
         if c["end_frame"] > end:
             right = deepcopy(c)
+            right.pop("merged_clip_ids", None)
             right.update(id=uuid4().hex, parent_id=c["id"], start_frame=end, new_episode=False)
             result.append(right)
     return result
@@ -69,7 +103,9 @@ def split_clip(project, clip_id, frame):
     if c is None or not c["start_frame"] < frame < c["end_frame"]:
         raise EditError("clip 내부 프레임에서 분할하세요.")
     right = deepcopy(c)
-    right.update(id=uuid4().hex, parent_id=c["id"], start_frame=frame, new_episode=False)
+    right.pop("merged_clip_ids", None)
+    right.update(id=uuid4().hex, parent_id=c["id"], start_frame=frame, new_episode=False,
+                 keep_boundary=True)
     c["end_frame"] = frame
     p["clips"].append(right)
     return p
@@ -92,7 +128,6 @@ def compile_selection(project):
         assignments[identity] = split
     order = {sid: i for i, sid in enumerate(sources)}
     runs, fps_values, identities = [], set(), set()
-    short_annotations = []
     clips = sorted(project["clips"], key=lambda c: (order.get(c["source_id"], -1), c.get("episode_id", 0), c["start_frame"]))
     previous = None
     for c in clips:
@@ -109,12 +144,6 @@ def compile_selection(project):
         task = project["tasks"].get(c["task_id"], "").strip()
         if not task:
             raise EditError("task가 없는 clip입니다.")
-        if (end - start) / source["fps"] < 0.5:
-            short_annotations.append({"clip_id": c["id"], "source_id": c["source_id"],
-                                      "episode_id": c.get("episode_id", 0),
-                                      "start_frame": start, "end_frame": end,
-                                      "frames": end - start, "duration_s": (end - start) / source["fps"],
-                                      "task": task})
         if previous and source_key(previous) == source_key(c) and previous["end_frame"] > start:
             raise EditError("clip이 겹칩니다. 교체하거나 경계를 조절하세요.")
         if not previous or source_key(previous) != source_key(c) or previous["end_frame"] != start or c.get("new_episode"):
@@ -127,6 +156,17 @@ def compile_selection(project):
         previous = c
     if len(fps_values) > 1:
         raise EditError("한 export에는 같은 FPS의 source를 사용하세요. 자동 재샘플링하지 않습니다.")
+    short_annotations = []
+    for run in runs:
+        run["clips"] = merge_adjacent_clips(run["clips"], project["tasks"])
+        for c in run["clips"]:
+            frames = c["end_frame"] - c["start_frame"]
+            duration = frames / sources[c["source_id"]]["fps"]
+            if duration < 0.5:
+                short_annotations.append({"clip_id": c["id"], "source_id": c["source_id"],
+                                          "episode_id": c.get("episode_id", 0),
+                                          "start_frame": c["start_frame"], "end_frame": c["end_frame"],
+                                          "frames": frames, "duration_s": duration, "task": c["task"]})
     kept = sum(r["end_frame"] - r["start_frame"] for r in runs)
     total = sum(e["num_frames"] for s in sources.values() for e in s["episodes"])
     return {"runs": runs, "num_episodes": len(runs), "kept_frames": kept,

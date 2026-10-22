@@ -2,7 +2,7 @@
 from copy import deepcopy
 from bisect import bisect_right
 
-from .core import EditError,source_key,subtract
+from .core import EditError,source_key,subtract,normalize_step_annotations
 
 
 def track_name(value='step'):
@@ -32,6 +32,7 @@ def validate_extra_tracks(project):
 def project_annotations(project,track='step'):
     """Pure, idempotent selection. Never modify stored labels or revive exclusions."""
     track_name(track)
+    project=normalize_step_annotations(project)
     if project.get('_annotation_track')==track:
         return deepcopy(project)
     if project.get('_annotation_track'):
@@ -87,6 +88,7 @@ class AnnotationLookup:
             item=items[i] if i>=0 and frame<items[i]['end_frame'] else None
             result[name+'_id']=item['id'] if item else None
             result[name+'_task']=self.tasks.get(item['task_id']) if item else None
+            result[name+'_keep_boundary']=bool(item and item.get('keep_boundary'))
         return result
 
 
@@ -117,7 +119,7 @@ def edit_annotation(project,body):
             if track=='goal':item['include_unlabeled']=body.get('include_unlabeled',item.get('include_unlabeled',False))
     else:raise EditError('지원하지 않는 annotation 편집입니다.')
     p[key]=view['clips'];p['tasks']=view['tasks']
-    return p
+    return normalize_step_annotations(p)
 
 
 def restore_exported_annotations(project,descriptor):
@@ -127,8 +129,11 @@ def restore_exported_annotations(project,descriptor):
     import pyarrow.parquet as pq
     path=Path(descriptor['path'])/'editor/frame_mapping.parquet'
     required=['episode_index','frame_index','task','step_id','step_task','goal_id','goal_task']
-    if not path.is_file() or not set(required)<=set(pq.read_schema(path).names):return None
-    rows=pq.read_table(path,columns=required).to_pylist()
+    if not path.is_file():return None
+    columns=pq.read_schema(path).names
+    if not set(required)<=set(columns):return None
+    optional=[name+'_keep_boundary' for name in ('step','goal') if name+'_keep_boundary' in columns]
+    rows=pq.read_table(path,columns=required+optional).to_pylist()
     for row in rows:
         if not row['step_task'] and not row['goal_task']:
             row['step_task']=row['task'];row['step_id']='legacy:'+str(row['task'])
@@ -153,7 +158,8 @@ def restore_exported_annotations(project,descriptor):
             else:
                 previous={'id':uuid4().hex,'source_id':descriptor['source_id'],'episode_id':row['episode_index'],
                           'start_frame':row['frame_index'],'end_frame':row['frame_index']+1,'task_id':tid,'new_episode':False}
+                if row.get(name+'_keep_boundary'):previous['keep_boundary']=True
                 if name=='goal':previous['include_unlabeled']=True
                 result.setdefault(key,[]).append(previous)
             identity=current
-    return result
+    return normalize_step_annotations(result)

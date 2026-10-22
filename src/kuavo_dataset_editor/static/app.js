@@ -316,7 +316,7 @@ function renderClips() {
   const list = clips();
   const short = list.filter(c=>shortRangeWarning(c.start_frame,c.end_frame,source().fps));
   $('annotationWarnings').hidden=!short.length;
-  $('annotationWarnings').textContent=`주의: 0.5초 미만 annotation 조각 ${short.length}개 (1프레임 ${short.filter(c=>c.end_frame-c.start_frame===1).length}개). 목록의 ‘짧음’ 구간을 확인하세요. 자동 수정·Export 차단은 하지 않습니다. 같은 task가 이어지는 조각은 Export에서 연속될 수 있습니다.`;
+  $('annotationWarnings').textContent=`주의: 0.5초 미만 annotation 구간 ${short.length}개 (1프레임 ${short.filter(c=>c.end_frame-c.start_frame===1).length}개). 목록의 ‘짧음’ 구간을 확인하세요. 자동 연장·Export 차단은 하지 않습니다. ${annotationTrack==='step'?'인접한 동일 task는 합친 길이 기준입니다. 명시적인 분할·episode 경계는 유지합니다.':'별도 Goal은 작업 1회의 경계로 유지합니다.'}`;
   $("clipList").replaceChildren(
     ...list.map((c) => {
       const row = document.createElement("div");
@@ -538,7 +538,16 @@ async function edit(operation, extra) {
   }
   undo.push(before);
   redo = [];
-  selected = clips().some((c) => c.id === selected) ? selected : null;
+  const selection=clips().find((c) => c.id === selected || c.merged_clip_ids?.includes(selected));
+  selected=selection?.id || null;
+  if(selection) {
+    // A neighboring same-task edit can merge both sides. Never leave the old
+    // fragment bounds in the inspector: a second edit would otherwise trim it.
+    $('startFrame').value=selection.start_frame;$('endFrame').value=selection.end_frame;
+    $('task').value=project.tasks[selection.task_id];
+    $('newEpisode').checked=!!selection.new_episode;
+    $('goalIncludeUnlabeled').checked=!!selection.include_unlabeled;
+  }
   renderTimeline();
   renderClips();
   $("taskReuse").replaceChildren(...taskOptions());
@@ -1026,7 +1035,7 @@ async function prepareExport() {
   if (!p.kept_frames) throw Error("먼저 task가 있는 clip을 만드세요.");
   if (project.project_id !== projectId) throw Error("프로젝트가 바뀌었습니다. 다시 Export하세요.");
   const shortExportWarning=p.short_annotations?.length
-    ? `주의: 0.5초 미만 annotation 조각 ${p.short_annotations.length}개 (1프레임 ${p.short_annotations.filter(c=>c.frames===1).length}개). 의도한 범위인지 확인하세요. 자동 수정·Export 차단은 하지 않습니다.\n` : '';
+    ? `주의: 0.5초 미만 annotation 구간 ${p.short_annotations.length}개 (1프레임 ${p.short_annotations.filter(c=>c.frames===1).length}개). 의도한 범위인지 확인하세요. 자동 연장·Export 차단은 하지 않습니다.\n` : '';
   if(shortExportWarning) toast(shortExportWarning);
   const confirmExport=message=>confirm(shortExportWarning+message);
   if (

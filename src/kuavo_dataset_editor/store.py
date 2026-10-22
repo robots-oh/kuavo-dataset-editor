@@ -4,7 +4,7 @@ import sqlite3
 import threading
 from copy import deepcopy
 from pathlib import Path
-from .core import EditError, compile_selection
+from .core import EditError, compile_selection, normalize_step_annotations, merge_adjacent_clips
 
 
 class Store:
@@ -32,7 +32,14 @@ class Store:
             row = self.db.execute("SELECT payload FROM projects WHERE id=?", (pid,)).fetchone() if revision is None else self.db.execute("SELECT payload FROM revisions WHERE id=? AND revision=?", (pid, revision)).fetchone()
             if not row:
                 raise KeyError(pid)
-            return json.loads(row[0])
+            project = json.loads(row[0])
+            if revision is None and project.get('_annotation_track') != 'goal':
+                merged_clips = merge_adjacent_clips(project['clips'], project['tasks'])
+                if merged_clips != project['clips']:
+                    # One recoverable migration revision. Old open tabs must
+                    # reload rather than edit a fragment of a now-merged clip.
+                    return self.save({**project, 'clips': merged_clips}, project["revision"])
+            return project
 
     def save(self, project, expected):
         compile_selection(project)
@@ -45,7 +52,7 @@ class Store:
                     raise EditError("다른 창에서 변경했습니다. 프로젝트를 다시 열어주세요.")
                 if not row and expected != -1:
                     raise EditError("프로젝트가 없습니다.")
-                p = deepcopy(project)
+                p = normalize_step_annotations(project)
                 p["revision"] = row[0] + 1 if row else 0
                 payload = json.dumps(p, ensure_ascii=False)
                 self.db.execute("INSERT OR REPLACE INTO projects VALUES (?, ?, ?)", (pid, p["revision"], payload))
