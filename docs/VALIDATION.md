@@ -148,3 +148,13 @@ stats, including dimensions with no labels. Existing legacy export/episode-resum
 tests are also exercised. No robot services, real collection, full production export or
 GR00T training is started by these tests. Training mask wiring remains an explicit consumer
 integration, documented in [WHOLEBODY_SCHEMA.md](WHOLEBODY_SCHEMA.md).
+## Raw / Export preview checks
+
+`tests/test_data_inspection.py` uses a disposable 15-frame ROS1 recording, not production bags.
+It checks original topic access and timestamps, bounded payloads, safe field paths, state24/action23
+units and masks, approved image hold and numeric interpolation, excluded frames, allowed roots,
+project ownership, stale preview rejection and optional preview use. The opt-in 5-frame official
+writer comparison verifies preview values/validity match Export and cached derivation is reused.
+`tests/test_data_inspector.mjs` covers stale source requests, completed job binding and placeholder display.
+Browser checks cover Raw retrieval, preview calculation and cursor-linked values on the synthetic recording.
+These are not a full integrity scan of production videos or a GR00T training validation.

@@ -2,6 +2,7 @@
 import { TASK_PRESETS } from "./tasks.mjs";
 import { setupFilePicker } from "./file-picker.mjs";
 import { setupQualityReview } from "./quality-review.mjs";
+import { setupDataInspector } from "./data-inspector.mjs";
 import {
   defaultTaskRange,
   nextTaskRange,
@@ -347,6 +348,7 @@ function renderClock() {
     `${time(frame)} · frame ${frame}/${episode().num_frames - 1}`;
   $("playhead").style.left = (frame / episode().num_frames) * 100 + "%";
   $("play").textContent = playing ? "Ⅱ 정지" : "▶ 재생";
+  dataInspector.cursorChanged();
 }
 async function fetchFrame() {
   if (!source() || previewBusy) return;
@@ -669,6 +671,12 @@ async function pollJobs() {
         bar.max = 1;
         bar.value = j.progress || 0;
         el.append(title, bar);
+        if (j.kind === 'export-preview' && j.status === 'completed') {
+          const open=document.createElement('button');
+          open.textContent='이 데이터 미리보기 열기';
+          open.onclick=action(()=>dataInspector.loadPreview(j.id));
+          el.append(open);
+        }
         if (j.checkpoint) {
           const checkpoint = document.createElement('p');
           checkpoint.textContent = `재사용 가능한 완료 episode: ${j.checkpoint.completed_episodes}개 · ${j.checkpoint.completed_frames} frames`;
@@ -852,11 +860,40 @@ async function pollJobs() {
       }),
     );
     if (!jobs.length) $("jobList").textContent = "작업 없음";
+    dataInspector.observeJobs(jobs);
   } catch (e) {
     console.warn(e);
   }
 }
 const reviewQuality = setupQualityReview();
+const dataInspector = setupDataInspector({
+  api,
+  getContext: () => ({project_id:project?.project_id,source:source(),episode:episodeId,frame,playing}),
+  getProject: () => project,
+  getSchema: () => $("exportSchema").value,
+  notify: toast,
+  preparePreview: async () => {
+    if (!project) throw Error("프로젝트를 먼저 여세요.");
+    const projectId=project.project_id,body=exportBody();
+    let plan=await api(`/api/projects/${projectId}/preview-plan`,body);
+    if (plan.quality?.issues.length && !plan.quality.ready) {
+      const approval=await reviewQuality(plan.quality);
+      if (!approval) return null;
+      body.quality=approval;
+      plan=await api(`/api/projects/${projectId}/preview-plan`,body);
+    }
+    if (project.project_id!==projectId) throw Error("프로젝트가 바뀌었습니다. 다시 계산하세요.");
+    const job=await api(`/api/projects/${projectId}/previews`,{...body,expected_revision:plan.project_revision});
+    await pollJobs();
+    return job.id;
+  },
+});
+$("previewExport").onclick=()=>dataInspector.calculate();
+function exportBody() {
+  return {mode:$("exportMode").value,schema:$("exportSchema").value,
+    repo_name:$("repoName").value.trim(),target:$("exportPath").value.trim()||undefined,
+    confirm_existing:$("confirmExisting").checked,...dataInspector.previewOptions()};
+}
 let exportBusy = false;
 async function exportNow() {
   if (exportBusy) return;
@@ -872,13 +909,7 @@ async function exportNow() {
 async function prepareExport() {
   if (!project) throw Error("프로젝트를 먼저 여세요.");
   const mode = $("exportMode").value;
-  const body = {
-    mode,
-    schema: $("exportSchema").value,
-    repo_name: $("repoName").value.trim(),
-    target: $("exportPath").value.trim() || undefined,
-    confirm_existing: $("confirmExisting").checked,
-  };
+  const body = exportBody();
   if (mode === "new" && !body.repo_name)
     throw Error("새 dataset repo 이름을 입력하세요.");
   if (mode !== "new" && !body.confirm_existing)
@@ -886,7 +917,7 @@ async function prepareExport() {
   const projectId = project.project_id;
   toast("선택 구간의 누락 데이터를 확인 중…");
   let p = await api(`/api/projects/${projectId}/export-plan`, body);
-  if (p.quality?.issues.length) {
+  if (p.quality?.issues.length && !p.quality.ready) {
     const approval = await reviewQuality(p.quality);
     if (!approval) return;
     if (project.project_id !== projectId) throw Error("프로젝트가 바뀌었습니다. 다시 Export하세요.");

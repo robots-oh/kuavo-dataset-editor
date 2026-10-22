@@ -262,7 +262,7 @@ def export_dataset(project, target, job_root, progress, options=None):
         if not preview['quality']['ready']:
             raise EditError('먼저 기존 누락 구간의 보정/제외를 선택하세요. annotation은 유지됩니다.')
         options['_target'] = str(target)
-        project,options = prepare_project(project,job_root,options,progress)
+        project,options = prepare_project(project,options.get('_preview_cache_root',job_root),options,progress)
     with RepositoryTransaction(project, target, job_root, options) as transaction:
         result = _write_dataset(transaction.selection, transaction.staging, job_root, progress, transaction)
         # The last cancellation point is before the short directory swap.

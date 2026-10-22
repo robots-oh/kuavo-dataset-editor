@@ -148,15 +148,17 @@ def repair_index(report):
     return result
 
 
-def corrected_row(adapter, episode, frame, repairs, time_map=None):
+def corrected_row(adapter, episode, frame, repairs, time_map=None, *, cameras=True,validate=True):
     if not repairs:
-        return adapter.row(episode, frame)
+        return adapter.row(episode, frame,cameras=cameras,validate=validate)
     fixes = {issue['feature']: issue for issue in repairs}
     result = {}
     for key in adapter.features:
+        if not cameras and adapter.features[key]['dtype'] in ('image','video'):
+            continue
         fix = fixes.get(key)
         if fix is None:
-            result.update(adapter.row(episode, frame, camera_key=key))
+            result.update(adapter.row(episode, frame, camera_key=key,validate=validate))
             continue
         left = adapter.row(episode, fix['left_frame'], camera_key=key)[key]
         if fix['decision'] == 'hold_image':

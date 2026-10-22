@@ -207,6 +207,11 @@ class WholeBodySource(CatalogSource):
                          'arrays':{key:str(directory/value) for key,value in saved['arrays'].items()},
                          'time_mapping':str(directory/'time_mapping.npz'),'wholebody_report':str(directory/'report.json'),
                          'validity_masks':mask_mapping(self.features)}
+        if saved.get('image_overrides'):
+            self.manifest['images']=deepcopy(self.manifest['images'])
+            for camera,overrides in saved['image_overrides'].items():
+                for frame,path in overrides.items():
+                    self.manifest['images'][camera][int(frame)]=path
         self.descriptor_value = descriptor
 
 
@@ -284,12 +289,15 @@ def prepare_project(project, job_root, options, progress):
                 arrays.update({k:np.asarray(v).copy() for k,v in original.arrays.items()
                                if k=='action' or k.startswith(('action.','validity.action','missing_reason.action'))})
             # Preserve explicitly approved old feature repairs, mapped by semantic group.
+            image_overrides={}
             for (sid,episode,frame),fixes in repairs.items():
                 if sid!=source['source_id']:
                     continue
                 row = corrected_row(original,episode,frame,fixes,times)
                 for fix in fixes:
                     feature = fix['feature']
+                    if fix['decision']=='hold_image':
+                        image_overrides.setdefault(feature,{})[str(frame)]=original.manifest['images'][feature][fix['left_frame']]
                     if feature=='observation.state':
                         state[frame,4:18] = row[feature]
                     elif schema==FULL and feature in ('action','action.gripper','action.base'):
@@ -331,7 +339,8 @@ def prepare_project(project, job_root, options, progress):
             report.update(contract=contract(schema),original_fingerprint=actual,
                           invalid_state_frames=int((~arrays['validity.observation.state'].all(axis=1)).sum()))
             write_json(report_path,report)
-            write_json(directory/'manifest.json',{'features':schema_features(original.features,schema),'arrays':mapping})
+            write_json(directory/'manifest.json',{'features':schema_features(original.features,schema),
+                                                 'arrays':mapping,'image_overrides':image_overrides})
         source['export_derivation'] = {'schema':schema,'path':str(directory),'key':key}
         source['features'] = schema_features(original.features,schema)
         adapter = WholeBodySource(source)

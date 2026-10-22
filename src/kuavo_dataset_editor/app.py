@@ -16,7 +16,7 @@ from PIL import Image
 
 from .core import EditError, compile_selection, label, new_project, split_clip, subtract
 from .jobs import JobManager
-from .sources import open_source
+from .sources import open_source,file_stamp
 from .store import Store
 
 
@@ -293,13 +293,35 @@ def create_app(workspace, allowed_roots=()):
                 result.append({"frame": frame, "values": {}})
         return result
 
-    def export_request(pid, body):
+    def raw_path(pid,sid):
+        source=project_source(pid,sid)
+        path=allowed(source.get('original_path',source['path']))
+        if path.suffix.lower()!='.bag' or not path.is_file():
+            raise EditError('이 원본에 연결된 rosbag이 없습니다. bag에서 가져온 원본을 선택하세요.')
+        return path
+
+    @lru_cache(maxsize=8)
+    def raw_inventory(path,stamp):
+        from .raw_inspection import inventory
+        return inventory(path)
+
+    @app.get('/api/projects/{pid}/raw/{sid}')
+    def inspect_raw(pid: str,sid: str):
+        path=raw_path(pid,sid)
+        return raw_inventory(str(path),file_stamp(path))
+
+    @app.get('/api/projects/{pid}/raw/{sid}/messages')
+    def raw_messages(pid: str,sid: str,topic: str,time_s: float=0,field: str='',limit: int=3,window_s: float=2):
+        from .raw_inspection import samples
+        return samples(raw_path(pid,sid),topic,time_s,limit,field,window_s)
+
+    def export_request(pid, body,preview=False):
         from .repositories import prepare_export, repo_identity
         project = store.get(pid)
         mode = body.get("mode", "new")
         if mode == "new":
-            identity = repo_identity(body.get("repo_name"))
-            target = allowed(body.get("target") or workspace / "exports" / identity["slug"])
+            identity = repo_identity(body.get("repo_name") or ('preview-'+pid if preview else ''))
+            target = allowed(body.get("target") or (workspace/'.preview-plans'/pid if preview else workspace / "exports" / identity["slug"]))
         else:
             if not body.get("target"):
                 raise EditError("기존 dataset 폴더를 지정하세요.")
@@ -320,6 +342,53 @@ def create_app(workspace, allowed_roots=()):
         plan = prepare_export(project, target, options)
         return project, target, options, plan
 
+    def preview_snapshot(pid,jid):
+        job=jobs.get(jid)
+        if job['kind']!='export-preview' or job['status']!='completed':
+            raise EditError('계산이 완료된 Export 미리보기를 선택하세요.')
+        root=jobs.root/jid
+        request=json.loads((root/'request.json').read_text())['payload']
+        if request['project']['project_id']!=pid: raise EditError('다른 프로젝트의 미리보기입니다.')
+        saved=json.loads((root/'preview.json').read_text())
+        for source in saved['project']['sources']:
+            allowed(source['path'])
+            if source.get('original_path'): allowed(source['original_path'])
+        return saved,request,root
+
+    @app.post('/api/projects/{pid}/preview-plan')
+    def preview_plan(pid: str,body: dict):
+        return export_request(pid,body,preview=True)[3]
+
+    @app.post('/api/projects/{pid}/previews')
+    def start_preview(pid: str,body: dict):
+        project,target,options,plan=export_request(pid,body,preview=True)
+        if body.get('expected_revision',project['revision'])!=project['revision']:
+            raise EditError('미리보기 준비 후 편집 내용이 바뀌었습니다. 다시 계산하세요.')
+        if not plan['quality']['ready']: raise EditError('기존 누락 구간의 보정/제외를 먼저 선택하세요.')
+        for source in project['sources']:
+            allowed(source['path']); allowed(source.get('original_path',source['path']))
+        return jobs.start('export-preview',{'project':project,'target':str(target),'options':options})
+
+    @app.get('/api/projects/{pid}/previews/{jid}')
+    def get_preview(pid: str,jid: str):
+        saved,request,_=preview_snapshot(pid,jid)
+        return {**saved['public'],'preview_id':jid,
+                'stale_revision':store.get(pid)['revision']!=saved['public']['project_revision'],
+                'quality':request['options'].get('quality')}
+
+    @app.get('/api/projects/{pid}/previews/{jid}/row')
+    def get_preview_row(pid: str,jid: str,sid: str,episode: int,frame: int):
+        from .data_preview import preview_row
+        saved,_,_=preview_snapshot(pid,jid)
+        try: return preview_row(saved,sid,episode,frame)
+        except (ValueError,IndexError) as exc: raise EditError(str(exc)) from exc
+
+    @app.get('/api/projects/{pid}/previews/{jid}/series')
+    def get_preview_series(pid: str,jid: str,sid: str,episode: int,feature: str,index: int):
+        from .data_preview import preview_series
+        saved,_,_=preview_snapshot(pid,jid)
+        return preview_series(saved,sid,episode,feature,index)
+
     @app.post("/api/projects/{pid}/export-plan")
     def export_plan(pid: str, body: dict):
         return export_request(pid, body)[3]
@@ -335,6 +404,12 @@ def create_app(workspace, allowed_roots=()):
             raise EditError("기존 dataset 추가/수정 확인에 체크하세요.")
         if not plan['quality']['ready']:
             raise EditError('먼저 누락 점검에서 각 구간의 보정/제외 여부를 선택하세요. annotation은 변경되지 않았습니다.')
+        if body.get('preview_id'):
+            from .data_preview import preview_key
+            saved,_,root=preview_snapshot(pid,body['preview_id'])
+            if preview_key(project,target,options)!=saved['key']:
+                raise EditError('편집 내용·원본·출력 구성이 미리보기와 달라졌습니다. 다시 미리보거나 미리보기 연결을 해제하세요.')
+            options['_preview_cache_root']=str(root)
         return jobs.start("export", {"project": project, "target": str(target), "options": options})
 
     @app.get("/api/jobs")

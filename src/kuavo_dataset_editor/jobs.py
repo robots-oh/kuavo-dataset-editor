@@ -261,6 +261,9 @@ def worker(directory):
                 state["result"] = result
                 atomic_json(directory / "status.json", state)
             result = import_many(payload, directory, progress, checkpoint)
+        elif request['kind']=='export-preview':
+            from .data_preview import build_preview
+            result=build_preview(payload['project'],payload['target'],payload.get('options') or {},directory,progress)
         elif request["kind"] == "export":
             from .exporter import export_dataset
             result = export_dataset(payload["project"], payload["target"], directory, progress, payload.get("options"))
@@ -280,7 +283,7 @@ def worker(directory):
         else:
             raise ValueError("알 수 없는 작업")
         state.update(status="completed", progress=1, result=result,
-                     message={"export": "export 완료", "hub-plan": "업로드 미리보기 준비됨 — 아직 전송하지 않았습니다.",
+                     message={"export": "export 완료", 'export-preview':'Export 데이터 미리보기 준비됨 (변환 파일 생성 전)', "hub-plan": "업로드 미리보기 준비됨 — 아직 전송하지 않았습니다.",
                               "hub-upload": "Hub 업로드 완료"}.get(request["kind"], "가져오기 완료"))
         if request["kind"] in ("import-batch", "ssh-import"):
             state["message"] = f"가져오기 처리 완료 · 성공 {len(result['sources'])} / 실패 {len(result['failures'])}"

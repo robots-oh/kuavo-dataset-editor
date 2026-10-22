@@ -17,6 +17,7 @@ PAGES = [
     ("docs/VISUAL_GUIDE.md", "화면으로 따라 하기"),
     ("docs/DATASET_REPOSITORIES.md", "Dataset 생성·추가·수정"),
     ("docs/WHOLEBODY_SCHEMA.md", "Torso·랙 state / action·mask"),
+    ("docs/DATA_INSPECTION.md", "Raw bag · Export 미리보기"),
     ("docs/HUGGING_FACE.md", "Hugging Face 업로드"),
     ("docs/LEROBOT_COMPATIBILITY.md", "LeRobot 버전·업데이트"),
     ("docs/ARCHITECTURE.md", "구조"),
