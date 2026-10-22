@@ -13,6 +13,7 @@
       <div id="saveState">프로젝트를 열어주세요</div>
       <button id="snapshot">프로젝트 JSON</button>
     </header>
+    <p id="compatibilityNotice" role="alert" hidden>화면은 업데이트됐지만 서버는 구형입니다. 진행 중인 작업이 끝난 후 에디터 서버를 재시작하고 브라우저를 새로고침하세요. 기존 annotation은 유지됩니다.</p>
     <div class="layout">
       <aside class="sources">
         <h2>프로젝트</h2>
@@ -99,10 +100,19 @@
                 step="0.5"
             /></label>
           </div>
+          <div class="row annotation-toolbar" role="group" aria-label="편집할 annotation 트랙">
+            <button id="editStep" aria-pressed="true">Step · 세부 동작</button>
+            <button id="editGoal" aria-pressed="false">Goal · 전체 작업</button>
+            <button id="goalFromRange">선택 범위로 Goal 초안</button>
+            <button id="goalFromSteps">현재 시점의 연속 Step 묶기</button>
+          </div>
+          <p id="annotationHint" class="muted">두 트랙은 독립적으로 저장됩니다. Goal이 없어도 Step Export가 가능합니다.</p>
           <div id="timelineScroll">
             <div id="timeline">
               <div id="ticks"></div>
-              <div id="track"></div>
+              <div id="goalTrack" class="annotation-lane" data-track="goal" aria-label="Goal 타임라인"></div>
+              <div id="track" class="annotation-lane" data-track="step" aria-label="Step 타임라인"></div>
+              <div id="excludedRanges" aria-hidden="true"></div>
               <div id="selection"></div>
               <div id="playhead"></div>
               <div id="snapGuide" hidden></div>
@@ -167,10 +177,11 @@
             </section>
           </details>
           <div class="row">
-            <h2>Clip 목록</h2>
+            <h2 id="clipListTitle">Step 목록</h2>
             <span id="coverage" class="muted"></span>
           </div>
           <div id="clipList"></div>
+          <details><summary>데이터 제외 구간 (Step·Goal 공통)</summary><div id="exclusionList"></div></details>
         </section>
         <section class="jobs">
           <h2>가져오기 · Export 작업</h2>
@@ -178,7 +189,7 @@
         </section>
       </main>
       <aside class="inspector">
-        <h2>선택 구간</h2>
+        <h2 id="annotationTitle">Step · 선택 구간</h2>
         <p id="clipMode" class="muted">새 구간</p>
         <p class="muted">
           다음 task는 직전 끝점부터 시작합니다. I·시간 입력·드래그로 직접 바꿀
@@ -224,7 +235,7 @@
             list="taskNames"
           ></textarea>
         </label>
-        <div
+        <div id="stepPresetPanel"><div
           id="taskPresets"
           class="task-presets"
           role="group"
@@ -235,22 +246,36 @@
           <div id="boxPickPresets" class="task-presets" role="group" aria-label="집을 상자 위치"></div>
           <p class="muted">왼쪽/오른쪽은 랙을 정면에서 바라본 기준입니다. 상단 = top 선반.</p>
         </div>
-        <p class="muted">
+        </div>
+        <div id="goalPresetPanel" hidden>
+          <p class="muted">전체 작업 후보 · 완료할 목표를 선택하세요.</p>
+          <div id="goalPresets" class="task-presets" role="group" aria-label="Goal instruction 후보"></div>
+          <label class="check"><input id="goalIncludeUnlabeled" type="checkbox" />Goal 범위의 Step 미지정 구간도 포함</label>
+          <p class="muted">기본은 Step이 있는 구간만 사용합니다. 체크하면 이전에 라벨을 제거한 구간도 포함될 수 있습니다.
+            아래 ‘데이터 제외’로 명시한 구간은 항상 제외됩니다. 각 Goal은 별도 episode입니다.</p>
+        </div>
+        <p class="muted" id="taskPresetHint">
           ‘상자 집기’는 위치를 고른 뒤 문장이 입력됩니다. 구간 저장은 아래 적용/수정 버튼을 누르세요.
         </p>
         <select id="taskReuse" aria-label="기존 task 재사용">
           <option value="">기존 task 선택…</option>
         </select>
-        <label class="check"
+        <label class="check" id="newEpisodeLabel"
           ><input id="newEpisode" type="checkbox" />이 경계에서 새 episode
           시작</label
         >
         <button id="apply" class="primary">새 구간에 task 적용</button
         ><button id="update">선택 clip 수정</button>
         <button id="clearClip">clip 선택 해제</button
-        ><button id="exclude" class="danger">선택 구간 라벨 제거 / 제외</button>
+        ><button id="removeAnnotation">현재 트랙의 선택 구간 라벨만 제거</button>
+        <button id="exclude" class="danger">데이터 제외 · 두 트랙 공통</button>
         <hr />
         <h2>Export</h2>
+        <label>학습용 instruction 트랙<select id="exportAnnotationTrack">
+          <option value="step">Step · 현재 단계 instruction</option>
+          <option value="goal">Goal · 전체 작업 instruction</option>
+        </select></label>
+        <p class="muted">편집 트랙과 별도로 선택합니다. Goal Export는 Goal이 있는 구간만 사용하며 Step 라벨은 보존합니다.</p>
         <label>출력 구성<select id="exportSchema">
           <option value="kuavo_wholebody_v1">새 구성: state 24 / action 23 (torso·랙 기준 base 포함)</option>
           <option value="kuavo_state24_v1">state 24 / 기존 action 유지</option>

@@ -15,7 +15,7 @@ from .masking import mask_mapping,REASONS
 
 
 def preview_key(project,target,options):
-    selection=selected_project(project,target,options.get('mode','new'))
+    selection=selected_project(project,target,options.get('mode','new'),options.get('annotation_track','step'))
     used={clip['source_id'] for clip in selection['clips']}
     sources=[]
     for source in selection['sources']:
@@ -24,7 +24,7 @@ def preview_key(project,target,options):
         if not root.exists() or not original.exists(): raise EditError('미리보기 원본 파일을 찾을 수 없습니다.')
         sources.append([source['source_id'],fingerprint(root),fingerprint(original) if original!=root else None])
     code=[Path(__file__).with_name(name).read_bytes() for name in
-          ('data_preview.py','wholebody.py','recorded_tf.py','rack_reconstruction.py','masking.py','quality.py','sources.py')]
+          ('data_preview.py','annotations.py','wholebody.py','recorded_tf.py','rack_reconstruction.py','masking.py','quality.py','sources.py')]
     value={'project':selection,'sources':sources,'schema':schema_name(options),
            'mode':options.get('mode','new'),'quality':options.get('quality'),
            'rack_calibration':options.get('rack_calibration')}
@@ -80,7 +80,7 @@ def _feature_values(adapter,feature,episode,start,end,repairs,source_id,times):
 def build_preview(project,target,options,directory,progress):
     directory=Path(directory); directory.mkdir(parents=True,exist_ok=True)
     key=preview_key(project,target,options)
-    initial=selected_project(project,target,options.get('mode','new'))
+    initial=selected_project(project,target,options.get('mode','new'),options.get('annotation_track','step'))
     selection,approved=resolve_quality(initial,options.get('quality'))
     if not approved['ready']: raise EditError('누락 구간 보정/제외를 선택한 뒤 미리보기를 계산하세요.')
     schema=schema_name(options)
@@ -142,6 +142,7 @@ def build_preview(project,target,options,directory,progress):
         raise EditError('미리보기 도중 원본이 변경되었습니다. 다시 계산하세요.')
     public={'project_id':project['project_id'],'project_revision':project['revision'],'schema':schema,
             'frames':plan['kept_frames'],'episodes':plan['num_episodes'],'sources':reports,
+            'annotation_track':options.get('annotation_track','step'),
             'reason_codes':REASONS,'read_only':True,'no_video_encoding':True,
             'approved_corrections':[issue for issue in approved['issues'] if issue.get('decision')!='exclude'],
             'note':'누락은 경고로 표시합니다. 입력 mask와 action loss mask는 학습에서 별도로 연결해야 합니다.'}
@@ -175,8 +176,10 @@ def preview_row(saved,sid,episode,frame):
             fields.append({**dim,'feature':feature,'value':float(values[i]) if np.isfinite(values[i]) else None,
                            'valid':valid,'reason':code,'reason_name':REASONS.get(code,'unknown')})
     kept=any(run['source_id']==sid and run['episode_id']==episode and run['start_frame']<=frame<run['end_frame'] for run in saved['plan']['runs'])
+    selected_clip=next((c for run in saved['plan']['runs'] if run['source_id']==sid and run['episode_id']==episode
+                        for c in run['clips'] if c['start_frame']<=frame<c['end_frame']),None)
     return {'source_id':sid,'episode_id':episode,'frame':frame,'time_s':frame/source['fps'],
-            'kept':kept,'fields':fields,'text_fields':text_fields}
+            'kept':kept,'fields':fields,'text_fields':text_fields,'task':selected_clip['task'] if selected_clip else None}
 
 
 def preview_series(saved,sid,episode,feature,index):

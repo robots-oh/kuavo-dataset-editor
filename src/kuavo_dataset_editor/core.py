@@ -15,7 +15,7 @@ def frame_at(seconds, fps):
 
 def new_project(name="새 프로젝트"):
     return {"format_version": 1, "project_id": uuid4().hex, "revision": 0,
-            "name": name, "main_task": "", "sources": [], "tasks": {}, "clips": [],
+            "name": name, "main_task": "", "sources": [], "tasks": {}, "clips": [], "goals": [], "exclusions": [],
             "source_splits": {}, "export": {"drop_unlabeled": True,
             "join_across_gaps": False, "episode_policy": "contiguous_labeled_runs",
             "overwrite": False, "push_to_hub": False}}
@@ -78,6 +78,8 @@ def split_clip(project, clip_id, frame):
 def compile_selection(project):
     if project.get("format_version") != 1:
         raise EditError("지원하지 않는 프로젝트 버전입니다.")
+    from .annotations import validate_extra_tracks
+    validate_extra_tracks(project)
     sources = {s["source_id"]: s for s in project["sources"]}
     if len(sources) != len(project["sources"]):
         raise EditError("중복된 source ID입니다.")

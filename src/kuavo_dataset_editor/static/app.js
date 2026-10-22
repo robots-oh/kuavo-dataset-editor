@@ -1,5 +1,6 @@
 /* No build step, no third-party CDN, no robot commands. */
 import { setupTaskPresets } from "./task-presets.mjs";
+import { GOAL_PRESETS,trackClips,coveringGoal,goalDraft,contiguousSteps } from './goals.mjs';
 import { setupFilePicker } from "./file-picker.mjs";
 import { setupQualityReview } from "./quality-review.mjs";
 import { setupDataInspector } from "./data-inspector.mjs";
@@ -25,6 +26,9 @@ let undo = [],
 let signalData = [],
   jobTimer = null;
 let selectedImportPaths = [];
+let annotationTrack='step';
+let annotationReady=false;
+const annotationDrafts={step:'',goal:''};
 const colors = [
   "#377b74",
   "#735ca1",
@@ -37,12 +41,7 @@ const copy = (x) => JSON.parse(JSON.stringify(x));
 const source = () => project?.sources.find((s) => s.source_id === sourceId);
 const episode = () =>
   source()?.episodes.find((e) => e.episode_id === episodeId);
-const clips = () =>
-  project?.clips
-    .filter(
-      (c) => c.source_id === sourceId && (c.episode_id ?? 0) === episodeId,
-    )
-    .sort((a, b) => a.start_frame - b.start_frame) || [];
+const clips = (track=annotationTrack) => trackClips(project,track,sourceId,episodeId);
 const range = () => [
   Number($("startFrame").value),
   Number($("endFrame").value),
@@ -88,7 +87,45 @@ const taskPresetPicker = setupTaskPresets({
 });
 function updatePresetSelection() {
   taskPresetPicker.sync();
+  for(const b of $("goalPresets").children) b.setAttribute('aria-pressed',String(b.title===$("task").value.trim()));
 }
+function renderTrackControls() {
+  const goal=annotationTrack==='goal';
+  $('editStep').setAttribute('aria-pressed',String(!goal));$('editGoal').setAttribute('aria-pressed',String(goal));
+  $('stepPresetPanel').hidden=goal;$('goalPresetPanel').hidden=!goal;$('newEpisodeLabel').hidden=goal;
+  $('annotationTitle').textContent=goal?'Goal · 전체 작업 구간':'Step · 세부 동작 구간';
+  $('clipListTitle').textContent=goal?'Goal 목록 · 포함된 Step':'Step 목록 · Goal 연결';
+  $('apply').textContent=goal?'새 Goal에 적용':'새 Step에 task 적용';
+  $('update').textContent=goal?'선택 Goal 수정':'선택 Step 수정';
+  $('taskPresetHint').textContent=goal?'후보는 문장 입력만 합니다. 범위·완료 목표를 확인하고 적용/수정 버튼으로 저장하세요.':'‘상자 집기’는 위치를 고른 뒤 문장이 입력됩니다. 구간 저장은 아래 적용/수정 버튼을 누르세요.';
+  $('track').classList.toggle('active-lane',!goal);$('goalTrack').classList.toggle('active-lane',goal);
+}
+function setAnnotationTrack(track) {
+  if(!annotationReady) {toast('진행 중인 작업이 끝난 후 에디터 서버를 재시작하고 새로고침하세요.');return false;}
+  if(annotationTrack!==track) {
+    annotationDrafts[annotationTrack]=$('task').value;annotationTrack=track;selected=null;
+    $('task').value=annotationDrafts[track];$('goalIncludeUnlabeled').checked=false;
+    $('clipMode').textContent=track==='goal'?'새 Goal 구간':'새 Step 구간';
+  }
+  renderTrackControls();updatePresetSelection();renderTimeline();renderClips();
+  return true;
+}
+function beginGoal(draft) {
+  if(!draft) throw Error('현재 원본에 묶을 Step이 없습니다. 영상에서 범위를 먼저 선택하세요.');
+  if(!setAnnotationTrack('goal'))return;
+  selected=null;
+  $('task').value=draft.instruction;$('startFrame').value=draft.start;$('endFrame').value=draft.end;
+  $('goalIncludeUnlabeled').checked=false;$('clipMode').textContent=`Goal 초안 · Step ${draft.steps}개 · 아직 저장되지 않음`;
+  updatePresetSelection();renderTimeline();renderClips();
+  toast('Goal 초안입니다. 범위·문장을 확인하고 새 Goal에 적용을 누르세요. Step은 변경되지 않았습니다.');
+}
+$('editStep').onclick=()=>setAnnotationTrack('step');$('editGoal').onclick=()=>setAnnotationTrack('goal');
+$('goalFromRange').onclick=action(()=>{const r=currentRange();beginGoal(goalDraft(project,sourceId,episodeId,r.start_frame,r.end_frame));});
+$('goalFromSteps').onclick=action(()=>beginGoal(contiguousSteps(project,sourceId,episodeId,frame)));
+$('goalPresets').replaceChildren(...GOAL_PRESETS.map(p=>{
+  const b=document.createElement('button');b.type='button';b.textContent=p.label;b.title=p.instruction;b.setAttribute('aria-pressed','false');
+  b.onclick=()=>{$('task').value=p.instruction;updatePresetSelection();};return b;
+}));
 async function api(path, body, method = "POST") {
   const r = await fetch(
     path,
@@ -147,6 +184,7 @@ async function loadProject(pid) {
 function render() {
   ++drawToken;
   updatePresetSelection();
+  renderTrackControls();
   $("saveState").textContent = project
     ? `${project.name} · 저장됨 r${project.revision}`
     : "프로젝트를 열어주세요";
@@ -241,13 +279,13 @@ function renderTimeline() {
       return e;
     }),
   );
-  $("track").replaceChildren(
-    ...clips().map((c) => {
+  for(const layer of ['goal','step']) $(layer==='goal'?'goalTrack':'track').replaceChildren(
+    ...clips(layer).map((c) => {
       const el = document.createElement("div");
-      el.className = "clip" + (selected === c.id ? " selected" : "");
+      el.className = "clip" + (annotationTrack===layer && selected === c.id ? " selected" : "");
       el.style.left = (c.start_frame / n) * 100 + "%";
       el.style.width = ((c.end_frame - c.start_frame) / n) * 100 + "%";
-      el.style.background = taskColor(c.task_id);
+      el.style.background = layer==='goal'?'#735ca1':taskColor(c.task_id);
       el.title = project.tasks[c.task_id];
       el.textContent = project.tasks[c.task_id];
       el.dataset.id = c.id;
@@ -257,14 +295,18 @@ function renderTimeline() {
         h.dataset.edge = edge;
         el.append(h);
       }
-      el.onpointerdown = (e) => clipPointer(e, c, el);
+      el.onpointerdown = (e) => clipPointer(e, c, el,layer);
       return el;
     }),
   );
   renderSelection();
   renderClock();
+  $('excludedRanges').replaceChildren(...(project.exclusions||[]).filter(x=>x.source_id===sourceId && (x.episode_id??0)===episodeId).map(x=>{
+    const el=document.createElement('div');el.style.left=(x.start_frame/n)*100+'%';el.style.width=((x.end_frame-x.start_frame)/n)*100+'%';return el;
+  }));
 }
 function renderClips() {
+  if(!episode()) { $('clipList').replaceChildren();$('exclusionList').replaceChildren();return; }
   const list = clips();
   $("clipList").replaceChildren(
     ...list.map((c) => {
@@ -272,7 +314,7 @@ function renderClips() {
       row.className = "cliprow" + (selected === c.id ? " selected" : "");
       const sw = document.createElement("span");
       sw.className = "swatch";
-      sw.style.background = taskColor(c.task_id);
+      sw.style.background = annotationTrack==='goal'?'#735ca1':taskColor(c.task_id);
       const t = document.createElement("span");
       t.className = "time";
       t.textContent = `${time(c.start_frame)} – ${time(c.end_frame)}`;
@@ -281,16 +323,35 @@ function renderClips() {
       text.textContent =
         project.tasks[c.task_id] + (c.new_episode ? " · 새 episode" : "");
       row.append(sw, t, text);
+      const linked=annotationTrack==='step'?coveringGoal(project,c):null;
+      if(annotationTrack==='step') {
+        const badge=document.createElement('span');badge.className='goal-badge'+(linked?'':' unassigned');
+        badge.textContent=linked?'Goal ✓':'Goal 없음/경계 걸침';badge.title=linked?project.tasks[linked.task_id]:'Step Export는 가능합니다. Goal 범위를 추가하거나 조정하세요.';
+        row.append(badge);
+      }
       row.onclick = () => selectClip(c.id);
+      if(annotationTrack==='goal') {
+        const wrap=document.createElement('div'),children=document.createElement('div');children.className='goal-children';
+        for(const step of clips('step').filter(s=>s.start_frame<c.end_frame && c.start_frame<s.end_frame)) {
+          const b=document.createElement('button');b.textContent=`${time(step.start_frame)}–${time(step.end_frame)} ${project.tasks[step.task_id]}`;
+          b.onclick=()=>{setAnnotationTrack('step');selectClip(step.id);};children.append(b);
+        }
+        wrap.append(row,children);return wrap;
+      }
       return row;
     }),
   );
   const kept = list.reduce((n, c) => n + c.end_frame - c.start_frame, 0);
   $("coverage").textContent =
-    `포함 ${kept} / ${episode().num_frames} frames · ${time(kept)}`;
+    `${annotationTrack==='goal'?'Goal 범위':'Step 라벨'} ${kept} / ${episode().num_frames} frames · ${time(kept)} · Goal 미연결 Step ${clips('step').filter(s=>!coveringGoal(project,s)).length}개`;
+  $('exclusionList').replaceChildren(...(project.exclusions||[]).filter(x=>x.source_id===sourceId && (x.episode_id??0)===episodeId).map(x=>{
+    const row=document.createElement('div'),b=document.createElement('button');
+    row.textContent=`${time(x.start_frame)}–${time(x.end_frame)} `;b.textContent='제외 해제';
+    b.onclick=action(async()=>{await edit('restore_exclusion',{exclusion_id:x.id});toast('데이터 제외를 해제했습니다. 제거된 Step 라벨은 자동 복원하지 않습니다.');});row.append(b);return row;
+  }));
 }
 function selectClip(id) {
-  const c = project.clips.find((x) => x.id === id);
+  const c = clips().find((x) => x.id === id);
   if (!c) return;
   selected = id;
   $("startFrame").value = c.start_frame;
@@ -298,7 +359,8 @@ function selectClip(id) {
   $("task").value = project.tasks[c.task_id];
   updatePresetSelection();
   $("newEpisode").checked = !!c.new_episode;
-  $("clipMode").textContent = "선택 clip · " + id.slice(0, 8);
+  $('goalIncludeUnlabeled').checked=!!c.include_unlabeled;
+  $("clipMode").textContent = `선택 ${annotationTrack} · ` + id.slice(0, 8);
   seek(c.start_frame);
   renderTimeline();
   renderClips();
@@ -307,6 +369,7 @@ function deselect() {
   selected = null;
   $("clipMode").textContent = "새 구간";
   $("newEpisode").checked = false;
+  $('goalIncludeUnlabeled').checked=false;
   renderTimeline();
   renderClips();
 }
@@ -425,11 +488,13 @@ function tick(now) {
 }
 async function edit(operation, extra) {
   if (!project) throw Error("프로젝트를 먼저 여세요.");
+  if(!annotationReady) throw Error('Goal/Step을 지원하는 에디터 서버로 재시작 후 새로고침하세요.');
   const before = copy(project);
   $("saveState").textContent = "저장 중…";
   try {
     project = await api(`/api/projects/${project.project_id}/edit`, {
       operation,
+      track:annotationTrack,
       expected_revision: project.revision,
       ...extra,
     });
@@ -439,7 +504,7 @@ async function edit(operation, extra) {
   }
   undo.push(before);
   redo = [];
-  selected = project.clips.some((c) => c.id === selected) ? selected : null;
+  selected = clips().some((c) => c.id === selected) ? selected : null;
   renderTimeline();
   renderClips();
   $("taskReuse").replaceChildren(...taskOptions());
@@ -480,6 +545,7 @@ async function applyLabel() {
     task: $("task").value,
     replace: overlap,
     new_episode: $("newEpisode").checked,
+    include_unlabeled:$('goalIncludeUnlabeled').checked,
   });
   deselect();
   const draft = nextTaskRange(r.end_frame, frame, episode().num_frames);
@@ -498,6 +564,7 @@ async function updateClip() {
     clip_id: selected,
     task: $("task").value,
     new_episode: $("newEpisode").checked,
+    include_unlabeled:$('goalIncludeUnlabeled').checked,
   });
 }
 async function history(backward) {
@@ -530,6 +597,8 @@ function pos(e) {
 $("timeline").onpointerdown = (e) => {
   if (!episode() || e.target.closest(".clip")) return;
   e.preventDefault();
+  const layer=e.target.closest('[data-track]')?.dataset.track;
+  if(layer) setAnnotationTrack(layer);
   const start = dragPoint(e).frame;
   playing = false;
   deselect();
@@ -555,7 +624,7 @@ $("timeline").onpointerdown = (e) => {
 };
 function dragPoint(event, excludedClipId = null) {
   const boundaries = [0, episode().num_frames];
-  for (const clip of clips()) {
+  for (const clip of [...clips('step'),...clips('goal')]) {
     if (clip.id !== excludedClipId)
       boundaries.push(clip.start_frame, clip.end_frame);
   }
@@ -576,14 +645,15 @@ function showSnap(point) {
     $("snapGuide").style.left =
       (point.frame / episode().num_frames) * 100 + "%";
 }
-function clipPointer(e, c, el) {
+function clipPointer(e, c, el,layer) {
   e.stopPropagation();
   e.preventDefault();
   playing = false;
   const edge = e.target.dataset.edge;
+  if(!setAnnotationTrack(layer))return;
   selectClip(c.id);
   if (!edge) return;
-  el = $("track").querySelector(`[data-id="${c.id}"]`);
+  el = $(layer==='goal'?'goalTrack':'track').querySelector(`[data-id="${c.id}"]`);
   const old = [c.start_frame, c.end_frame];
   const move = (m) => {
     const point = dragPoint(m, c.id),
@@ -850,6 +920,7 @@ const dataInspector = setupDataInspector({
   getContext: () => ({project_id:project?.project_id,source:source(),episode:episodeId,frame,playing}),
   getProject: () => project,
   getSchema: () => $("exportSchema").value,
+  getAnnotationTrack: () => $('exportAnnotationTrack').value,
   notify: toast,
   preparePreview: async () => {
     if (!project) throw Error("프로젝트를 먼저 여세요.");
@@ -869,7 +940,9 @@ const dataInspector = setupDataInspector({
 });
 $("previewExport").onclick=()=>dataInspector.calculate();
 function exportBody() {
+  if(!annotationReady) throw Error('에디터 서버를 재시작하고 새로고침한 후 Export하세요.');
   return {mode:$("exportMode").value,schema:$("exportSchema").value,
+    annotation_track:$('exportAnnotationTrack').value,
     repo_name:$("repoName").value.trim(),target:$("exportPath").value.trim()||undefined,
     confirm_existing:$("confirmExisting").checked,...dataInspector.previewOptions()};
 }
@@ -907,7 +980,7 @@ async function prepareExport() {
   if (project.project_id !== projectId) throw Error("프로젝트가 바뀌었습니다. 다시 Export하세요.");
   if (
     !confirm(
-      `${mode === "new" ? "새 생성" : mode === "append" ? "기존에 추가" : "기존 수정"}: ${p.repo_id}\n${p.target}\n\n출력 구성: ${p.schema}\n${p.schema !== 'legacy' ? '미기록 목표·상태는 validity=0으로 저장합니다. 학습 mask 연결이 필요합니다.\n랙 보정/다중 태그/TF가 없으면 랙 상대 위치도 미기록 처리됩니다.\n' : ''}현재 선택 ${p.kept_frames} frames (${(p.kept_frames / p.fps).toFixed(2)}초)\n미지정·승인된 누락 제외 ${p.dropped_frames} frames\n최종 ${p.output_frames} frames / ${p.output_episodes} episodes\n누락 구간 처리 ${p.quality?.issues.length || 0}건 (선택 내역 기록)\n${mode === "append" ? `기존 ${p.existing_frames} frames는 유지합니다. 중복 구간은 자동 제거하지 않습니다.\n` : ""}${mode !== "new" ? "기존 폴더는 복구본으로 보존합니다.\n" : ""}\n저장본 r${p.project_revision}으로 진행할까요?`,
+      `${mode === "new" ? "새 생성" : mode === "append" ? "기존에 추가" : "기존 수정"}: ${p.repo_id}\n${p.target}\n\nInstruction 트랙: ${p.annotation_track==='goal'?'Goal · 전체 작업':'Step · 세부 동작'}\n출력 구성: ${p.schema}\n${p.schema !== 'legacy' ? '미기록 목표·상태는 validity=0으로 저장합니다. 학습 mask 연결이 필요합니다.\n랙 보정/다중 태그/TF가 없으면 랙 상대 위치도 미기록 처리됩니다.\n' : ''}현재 선택 ${p.kept_frames} frames (${(p.kept_frames / p.fps).toFixed(2)}초)\n미지정·승인된 누락 제외 ${p.dropped_frames} frames\n최종 ${p.output_frames} frames / ${p.output_episodes} episodes\n누락 구간 처리 ${p.quality?.issues.length || 0}건 (선택 내역 기록)\n${mode === "append" ? `기존 ${p.existing_frames} frames는 유지합니다. 중복 구간은 자동 제거하지 않습니다.\n` : ""}${mode !== "new" ? "기존 폴더는 복구본으로 보존합니다.\n" : ""}\n저장본 r${p.project_revision}으로 진행할까요?`,
     )
   )
     return;
@@ -1102,12 +1175,14 @@ $("apply").onclick = action(applyLabel);
 $("update").onclick = action(updateClip);
 $("clearClip").onclick = deselect;
 $("exclude").onclick = action(async () => {
+  if(!confirm('선택 구간을 Step·Goal Export 모두에서 제외합니다. Goal 범위를 넓혀도 다시 포함되지 않습니다. 진행할까요?'))return;
   await edit("exclude", currentRange());
   deselect();
 });
+$('removeAnnotation').onclick=action(async()=>{await edit('remove_annotation',currentRange());deselect();});
 $("split").onclick = action(async () => {
   const c =
-    project?.clips.find((c) => c.id === selected) ||
+    clips().find((c) => c.id === selected) ||
     clips().find((c) => c.start_frame < frame && frame < c.end_frame);
   if (!c) throw Error("분할할 clip 내부로 이동하세요.");
   await edit("split", { clip_id: c.id, frame });
@@ -1161,6 +1236,9 @@ document.addEventListener("keydown", (e) => {
 });
 action(async () => {
   const cfg = await api("/api/config");
+  annotationReady=cfg.annotation_tracks?.includes('goal')===true;
+  $('compatibilityNotice').hidden=annotationReady;
+  if(!annotationReady) throw Error('화면과 서버 버전이 다릅니다. 진행 중인 작업이 끝나면 에디터 서버를 재시작하고 새로고침하세요. annotation은 그대로 유지됩니다.');
   $("profile").value = JSON.stringify(cfg.bag_profile, null, 2);
   const ps = await projectList();
   if (ps.length) {

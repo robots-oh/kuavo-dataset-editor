@@ -223,7 +223,7 @@ def prepare_project(project, job_root, options, progress):
     from .sources import open_source
     from .quality import resolve_quality, repair_index, corrected_row
     from .repositories import selected_project
-    project = selected_project(project, options.get('_target',''), options.get('mode','new'))
+    project = selected_project(project, options.get('_target',''), options.get('mode','new'),options.get('annotation_track','step'))
     selection, approved = resolve_quality(project,options.get('quality'))
     repairs = repair_index(approved)
     result = deepcopy(selection)

@@ -76,7 +76,8 @@ def create_app(workspace, allowed_roots=()):
     @app.get("/api/config")
     def config():
         profile = json.loads((Path(__file__).parent / "profiles/kuavo_5w.json").read_text())
-        return {"workspace": str(workspace), "allowed_roots": [str(r) for r in roots], "bag_profile": profile}
+        return {"workspace": str(workspace), "allowed_roots": [str(r) for r in roots], "bag_profile": profile,
+                'annotation_tracks':['step','goal']}
 
     @app.get("/api/projects")
     def list_projects():
@@ -181,23 +182,14 @@ def create_app(workspace, allowed_roots=()):
             if p["revision"] != body["expected_revision"]:
                 raise EditError("다른 창에서 수정했습니다. 다시 열어주세요.")
             op = body["operation"]
-            if op == "label":
-                p = label(p, body["source_id"], int(body["episode_id"]), body["start_frame"], body["end_frame"], body["task"], body.get("replace", False), body.get("new_episode", False))
+            if op in ('label','split','remove_clip','update_clip','remove_annotation'):
+                from .annotations import edit_annotation
+                p=edit_annotation(p,body)
             elif op == "exclude":
                 p["clips"] = subtract(p["clips"], body["source_id"], int(body["episode_id"]), body["start_frame"], body["end_frame"])
-            elif op == "split":
-                p = split_clip(p, body["clip_id"], body["frame"])
-            elif op == "remove_clip":
-                p["clips"] = [c for c in p["clips"] if c["id"] != body["clip_id"]]
-            elif op == "update_clip":
-                c = next(c for c in p["clips"] if c["id"] == body["clip_id"])
-                c.update(start_frame=body["start_frame"], end_frame=body["end_frame"], new_episode=bool(body.get("new_episode")))
-                text = body.get("task", "").strip()
-                if not text:
-                    raise EditError("task를 입력하거나 구간 제외로 라벨을 제거하세요.")
-                tid = next((k for k, v in p["tasks"].items() if v == text), uuid4().hex)
-                p["tasks"][tid] = text
-                c["task_id"] = tid
+                p.setdefault('exclusions',[]).append({key:body[key] for key in ('source_id','episode_id','start_frame','end_frame')} | {'id':uuid4().hex})
+            elif op=='restore_exclusion':
+                p['exclusions']=[item for item in p.get('exclusions',[]) if item['id']!=body['exclusion_id']]
             elif op == "split_assignment":
                 if body["split"] not in ("train", "validation", "test", "unspecified"):
                     raise EditError("알 수 없는 split")
@@ -329,6 +321,7 @@ def create_app(workspace, allowed_roots=()):
             allowed(target.parent)  # Backup/staging directories are siblings, not children.
         options = {"mode": mode, "repo_name": body.get("repo_name"),
                    'schema':body.get('schema','legacy'),
+                   'annotation_track':body.get('annotation_track','step'),
                    "confirm_existing": body.get("confirm_existing") is True}
         if body.get('rack_calibration') is not None:
             if not isinstance(body['rack_calibration'],dict):

@@ -33,6 +33,7 @@ def main():
     export.add_argument("--repo-name")
     export.add_argument("--confirm-existing", action="store_true")
     export.add_argument('--schema',choices=['legacy','kuavo_wholebody_v1','kuavo_state24_v1'],default='legacy')
+    export.add_argument('--annotation-track',choices=['step','goal'],default='step')
     export.add_argument('--rack-calibration',help='Optional JSON with rack_tags; recorded calibration is preferred')
     resume = sub.add_parser('resume-export', help='Resume an interrupted Export from its last complete episode')
     resume.add_argument('job_id')
@@ -73,6 +74,7 @@ def main():
         print(json.dumps(manager.start("export", {"project": project, "target": str(Path(args.target).resolve()),
                                                   "options": {"mode": args.mode, "repo_name": args.repo_name,
                                                               'schema':args.schema,
+                                                              'annotation_track':args.annotation_track,
                                                               'rack_calibration':json.loads(Path(args.rack_calibration).read_text()) if args.rack_calibration else None,
                                                               "confirm_existing": args.confirm_existing}}), indent=2))
     elif args.command == 'resume-export':

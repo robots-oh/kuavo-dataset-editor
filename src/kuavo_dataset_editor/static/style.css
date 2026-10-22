@@ -272,12 +272,23 @@ hr {
 }
 #track {
   position: absolute;
-  top: 35px;
+  top: 95px;
   left: 0;
   right: 0;
   height: 48px;
   background: #212a37;
 }
+#timeline { min-height: 158px; }
+#goalTrack { position: absolute; top: 35px; left: 0; right: 0; height: 48px; background: #302b43; }
+.annotation-lane::before { content: attr(data-track); position: absolute; right: 5px; top: 2px; color: #ffffff77; font: 10px monospace; pointer-events: none; z-index: 1; }
+.annotation-lane.active-lane { box-shadow: 0 0 0 2px var(--accent); }
+.annotation-toolbar button[aria-pressed="true"] { border-color: var(--accent); background: #255a4f; }
+.goal-children { display: grid; gap: 4px; margin: 4px 0 8px 18px; border-left: 2px solid #735ca1; padding-left: 8px; }
+.goal-children button { text-align: left; font-size: 11px; }
+.goal-badge { font-size: 10px; color: var(--accent); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-badge.unassigned { color: #f2c078; }
+#excludedRanges { position: absolute; inset: 30px 0 8px; pointer-events: none; }
+#excludedRanges div { position: absolute; height: 100%; background: repeating-linear-gradient(135deg,#f0646433,#f0646433 5px,#f0646411 5px,#f0646411 10px); border: 1px solid #ef7373; }
 .clip {
   position: absolute;
   top: 0;
@@ -312,7 +323,7 @@ hr {
 #selection {
   position: absolute;
   top: 27px;
-  height: 65px;
+  height: 122px;
   background: #71d9ba22;
   border: 1px dashed var(--accent);
   pointer-events: none;

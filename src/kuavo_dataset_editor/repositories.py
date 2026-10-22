@@ -30,6 +30,11 @@ def task_names(root):
 
 def with_existing_labels(project, descriptor):
     """Import original per-frame labels; editing one clip must not drop untouched ones."""
+    from .annotations import restore_exported_annotations
+    restored=restore_exported_annotations(project,descriptor)
+    if restored is not None:
+        compile_selection(restored)
+        return restored
     result = deepcopy(project)
     source = LeRobotSource(descriptor["path"])
     names = task_names(source.root)
@@ -112,8 +117,9 @@ def existing_identity(target):
     return repo_identity(Path(target).name)
 
 
-def selected_project(project, target, mode):
-    result = deepcopy(project)
+def selected_project(project, target, mode,annotation_track='step'):
+    from .annotations import project_annotations
+    result = project_annotations(project,annotation_track)
     if mode == "append":
         # Imported existing labels are for editing, not instructions to duplicate
         # the target's own episodes when appending new bags to that same dataset.
@@ -122,6 +128,8 @@ def selected_project(project, target, mode):
                          or s.get("repository_target") == str(Path(target).resolve()))}
         result["sources"] = [s for s in result["sources"] if s["source_id"] not in base_ids]
         result["clips"] = [c for c in result["clips"] if c["source_id"] not in base_ids]
+        for key in ('goals','exclusions'):
+            result[key]=[c for c in result.get(key,[]) if c['source_id'] not in base_ids]
     return result
 
 
@@ -133,11 +141,13 @@ def prepare_export(project, target, options=None):
     if mode not in ("new", "append", "replace"):
         raise EditError("알 수 없는 dataset 저장 방식입니다.")
     target = Path(target).expanduser().resolve()
-    selection = selected_project(project, target, mode)
+    selection = selected_project(project, target, mode,options.get('annotation_track','step'))
     from .quality import resolve_quality
     selection, quality = resolve_quality(selection, options.get('quality'))
     plan = compile_selection(selection)
     if not plan["runs"]:
+        if options.get('annotation_track')=='goal':
+            raise EditError('Goal에 Export할 구간이 없습니다. Goal 범위를 지정하세요. 기본은 Step이 있는 부분만 포함하며, 필요하면 Goal의 미지정 Step 포함을 선택하세요.')
         raise EditError("저장할 라벨 구간이 없습니다. 추가 모드에서는 대상 dataset 자체의 구간은 제외합니다.")
     used = {run["source_id"] for run in plan["runs"]}
     from .wholebody import schema_name, schema_features, validate_source, contract
@@ -183,6 +193,7 @@ def prepare_export(project, target, options=None):
             raise EditError("수정할 dataset을 먼저 이 프로젝트의 원본으로 불러오세요.")
         baseline = fingerprint(target)
     return {**plan, **identity, "mode": mode, "target": str(target), "baseline": baseline, "quality": quality,
+            'annotation_track':options.get('annotation_track','step'),
             'schema':schema,'schema_contract':contract(schema) if schema!='legacy' else None,
             "existing_frames": base_frames, "existing_episodes": base_episodes,
             "output_frames": base_frames + plan["kept_frames"],
@@ -210,7 +221,7 @@ class RepositoryTransaction:
         if not self.plan['quality']['ready']:
             raise EditError('누락 데이터가 있습니다. 미리보기에서 끊긴 프레임 수와 시간을 확인하고 보정/제외를 선택하세요.')
         from .quality import selection_with_quality
-        self.selection = selection_with_quality(selected_project(project, target, self.plan["mode"]), self.plan['quality'])
+        self.selection = selection_with_quality(selected_project(project, target, self.plan["mode"],self.options.get('annotation_track','step')), self.plan['quality'])
         self.target = Path(self.plan["target"])
         self.staging = self.target.parent / f".{self.target.name}.{self.job_root.name}.partial"
         self.backup = self.target.parent / f".{self.target.name}.backup-{self.job_root.name}"

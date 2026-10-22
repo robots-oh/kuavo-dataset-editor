@@ -24,3 +24,4 @@ jobs:
       - run: node tests/test_folder_picker.mjs
       - run: node tests/test_quality_review.mjs
       - run: node tests/test_data_inspector.mjs
+      - run: node tests/test_goals.mjs

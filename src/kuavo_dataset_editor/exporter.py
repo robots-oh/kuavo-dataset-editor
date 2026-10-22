@@ -40,6 +40,8 @@ def _write_dataset(project, staging, job_root, progress, transaction):
     append = settings["mode"] == "append"
     base_frames, base_episodes = settings["existing_frames"], settings["existing_episodes"]
     sources = {s["source_id"]: s for s in project["sources"]}
+    from .annotations import AnnotationLookup
+    annotation_lookup=AnnotationLookup(project)
     used = {r["source_id"] for r in plan["runs"]}
     adapters = {sid: open_source(sources[sid]) for sid in used}
     time_maps = {}
@@ -122,6 +124,7 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                         "source_episode": run["episode_id"], "source_frame": source_frame,
                                         "source_time_s": source_frame/plan["fps"], "clip_id": clip["id"],
                                         "task": clip["task"], "split": run["split"]})
+                    output_rows[-1].update(annotation_lookup.at(run['source_id'],run['episode_id'],source_frame))
                     if frame_repairs:
                         output_rows[-1]['quality/imputed_features'] = [item['feature'] for item in frame_repairs]
                     if run["source_id"] in time_maps:
@@ -166,9 +169,12 @@ def _write_dataset(project, staging, job_root, progress, transaction):
     if settings["mode"] != "new":
         preserve_editor_history(transaction.target, staging, job_root.name)
     write_json(provenance / "project.json", transaction.snapshot)
+    write_json(provenance / 'annotations.json',{'selected_track':project.get('_annotation_track','step'),
+                                               **project.get('_annotation_original',{})})
     write_json(provenance / "dataset.json", {"name": settings["name"], "repo_id": settings["repo_id"],
                                             "mode": settings["mode"], "local_only": True})
     write_json(provenance / "operation.json", {"mode": settings["mode"], "target": str(transaction.target),
+                                               'annotation_track':project.get('_annotation_track','step'),
                                                "backup": str(transaction.backup) if settings["mode"] != "new" else None,
                                                "baseline": settings["baseline"], "job": str(job_root)})
     write_json(provenance / "export_plan.json", plan)
@@ -250,7 +256,7 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                              "quality_issues": len(settings['quality']['issues']),
                                              "originals_preserved": True})
     return {"frames": base_frames + finished, "episodes": settings["output_episodes"],
-            'schema':schema,'mask_summary':mask_summary}
+            'schema':schema,'mask_summary':mask_summary,'annotation_track':project.get('_annotation_track','step')}
 
 
 def export_dataset(project, target, job_root, progress, options=None):

@@ -28,6 +28,8 @@ kuavo-dataset-editor/
 
 [Raw bag 메시지 · Export 전 데이터 미리보기](docs/DATA_INSPECTION.md): 영상 아래 검사 패널에서 원본 토픽과 현재 프레임의 state/action·validity·누락 사유를 확인한다. 미리보기는 최종 dataset을 저장하지 않는다.
 
+[Goal / Step 두 계층 annotation](docs/GOAL_ANNOTATIONS.md): 짧은 동작 라벨을 보존하며 전체 작업 Goal을 별도 트랙에서 작성하고, Export에서 사용할 instruction 계층을 선택한다.
+
 새 Export 구성은 기존 annotation을 유지하면서 원본 bag 전체에서 torso/랙 상대 base를 계산합니다.
 미기록 값은 bool 유효성(0/1)과 uint8 사유 코드로 구분하며, 관절별 이름과 정규화 통계를 함께 저장합니다.
 학습 시 mask 연결은 별도이며, 기존 dataset을 그대로 편집할 때는 **기존 구성 유지**를 선택하세요.

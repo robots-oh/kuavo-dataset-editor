@@ -158,3 +158,14 @@ writer comparison verifies preview values/validity match Export and cached deriv
 `tests/test_data_inspector.mjs` covers stale source requests, completed job binding and placeholder display.
 Browser checks cover Raw retrieval, preview calculation and cursor-linked values on the synthetic recording.
 These are not a full integrity scan of production videos or a GR00T training validation.
+
+## Goal / Step annotations
+
+`test_goals.py` covers independent editing/projection, within-track overlap, legacy projects,
+explicit common exclusions, gaps and manual episode boundaries, source split preservation,
+and Goal previews with the whole-body schema. The opt-in ten-frame writer test exports both
+instruction levels, checks task indices/text and restores both annotation tracks on import.
+Existing new/append/replace and full-body cached-preview writer tests also pass.
+`test_goals.mjs` checks position-specific Goal drafts and contiguous Step grouping without crossing
+gaps/resets. Browser checks use synthetic data for creating a Goal, dragging its edge with video
+scrub, Undo, and selecting Goal instruction in the export preview. No production labels are edited.

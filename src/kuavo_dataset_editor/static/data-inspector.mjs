@@ -1,5 +1,5 @@
 /* Separate original messages from export values; text-only rendering of bag content. */
-export function setupDataInspector({api,getContext,getProject,getSchema,preparePreview,notify}) {
+export function setupDataInspector({api,getContext,getProject,getSchema,getAnnotationTrack=()=> 'step',preparePreview,notify}) {
   const $=id=>document.getElementById(id);
   let meta=null,report=null,previewId=null,pendingId=null,mode='raw',lastSource=null,generation=0,timer=null,calculating=false;
   const status=text=>{$('inspectorStatus').textContent=text;};
@@ -104,7 +104,7 @@ export function setupDataInspector({api,getContext,getProject,getSchema,prepareP
         `${dim.source} | ${Object.entries(dim.reasons).filter(([code])=>code!=='0').map(([code,count])=>`${report.reason_codes[code]||code}: ${count}`).join(', ') || '누락 없음'}`]);
     }
     table($('previewSummary'),['원본','항목·이름','단위/shape','유효','최소 .. 최대','원본·누락 사유'],rows);
-    const label=`${report.schema} · ${report.frames} frames / ${report.episodes} episodes · 저장본 r${report.project_revision}`;
+    const label=`${report.annotation_track==='goal'?'Goal':'Step'} instruction · ${report.schema} · ${report.frames} frames / ${report.episodes} episodes · 저장본 r${report.project_revision}`;
     const corrected=report.approved_corrections||[];
     $('previewMeta').textContent=label+(report.stale_revision?' · 편집 후 이전 미리보기입니다. 다시 계산하세요.':' · 영상 인코딩·dataset 저장 전')+` · 승인한 보정 ${corrected.length}구간`;
     const notes=report.sources.map(s=>{const r=s.reconstruction;return r?`${s.name}: anchor ${r.anchor_knots?.length||0}개, torso 목표 ${r.torso_action_source||'미기록'}, rack 사유 ${r.rack_unavailable_reason?report.reason_codes[r.rack_unavailable_reason]:'정상 계산(연속 odom·고정 rack 전제)'}`:'';}).filter(Boolean);
@@ -125,7 +125,7 @@ export function setupDataInspector({api,getContext,getProject,getSchema,prepareP
     const data=await api(`/api/projects/${c.project_id}/previews/${previewId}/row?${query}`);
     if (token!==generation) return;
     const corrected=(report.approved_corrections||[]).filter(i=>i.source_id===c.source.source_id && i.episode_id===c.episode && i.start_frame<=c.frame && c.frame<i.end_frame);
-    $('previewRowMeta').textContent=`영상 ${data.time_s.toFixed(3)} s / frame ${data.frame} · ${data.kept?'Export에 포함':'현재 선택에서는 Export 제외'} · 미기록 0은 실제 명령이 아닙니다.`+(corrected.length?` 승인한 보정: ${corrected.map(i=>`${i.feature} (${i.decision})`).join(', ')}`:'');
+    $('previewRowMeta').textContent=`영상 ${data.time_s.toFixed(3)} s / frame ${data.frame} · ${data.kept?'Export에 포함':'현재 선택에서는 Export 제외'} · ${data.task||'선택된 instruction 없음'} · 미기록 0은 실제 명령이 아닙니다.`+(corrected.length?` 승인한 보정: ${corrected.map(i=>`${i.feature} (${i.decision})`).join(', ')}`:'');
     table($('previewValues'),['항목','idx','이름','값','단위','validity','사유'],data.fields.map(dim=>[
       dim.feature,dim.index,dim.name,dim.valid?number(dim.value):`${number(dim.value)} (placeholder)`,dim.unit,dim.valid?1:0,dim.reason_name]).concat(Object.entries(data.text_fields||{}).map(([key,value])=>[key,'','',value,'string','',''])));
     const old=$('previewDimension').value;
@@ -178,7 +178,7 @@ export function setupDataInspector({api,getContext,getProject,getSchema,prepareP
     },
     previewOptions() {
       const p=getProject();
-      return report && report.project_id===p?.project_id && report.project_revision===p.revision && report.schema===getSchema()
+      return report && report.project_id===p?.project_id && report.project_revision===p.revision && report.schema===getSchema() && (report.annotation_track||'step')===getAnnotationTrack()
         ? {preview_id:previewId,quality:report.quality} : {};
     },
     calculate:()=> $('previewCalculate').onclick(),
