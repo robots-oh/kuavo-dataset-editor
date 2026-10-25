@@ -24,8 +24,16 @@ dataset 이름은 달라도 된다.
 
 기존 모든 episode와 task는 유지하고 새 선택 구간을 새로운 episode로 추가한다.
 대상 dataset 자체를 같은 프로젝트에 불러온 경우 그 원본의 clip은 자동으로 제외한다.
-같은 bag/clip을 반복 Export하는 일반적인 중복은 자동 제거하지 않으므로 새 수집분만
-선택하거나 수집 batch별 프로젝트를 사용한다.
+UI의 **Export 대상** 기본값은 **현재 선택한 원본만**이다. **프로젝트 전체 라벨**을 선택하면
+기존처럼 수집 batch를 한 번에 처리할 수 있다. CLI는 프로젝트 전체 라벨을 사용한다.
+
+추가할 때 대상의 `editor/frame_mapping.parquet`를 기준으로 이미 저장된 원본 프레임을 건너뛴다.
+같은 bag의 다른 구간은 추가할 수 있으며, 전부 중복이면 writer를 시작하지 않는다.
+확인 창과 `editor/operation.json`의 `skipped_duplicate_frames`에 건너뛴 수를 기록한다.
+원본 ID와 저장된 프로젝트/편집 이력의 등록 fingerprint를 비교하므로 같은 bag을 다시 import해
+ID가 달라진 경우도 인식한다. fingerprint는 이름·크기·수정 시각 기준이며 전체 파일 내용 checksum은 아니다.
+원본 매핑이 없는 외부 dataset의 과거 프레임은 판별할 수 없고, 기존 결과 안의 중복을 정리하지는 않는다.
+이미 저장된 프레임의 task를 바꾸려면 추가가 아니라 기존 dataset 수정 모드를 사용한다.
 
 기존/추가 데이터의 FPS와 feature schema(카메라/해상도·state/action 차원 등)가 같아야 한다.
 추가는 v3.0과 기본 lock의 공식 `resume` API를 사용한다. 기존 영상 codec을 유지한다.

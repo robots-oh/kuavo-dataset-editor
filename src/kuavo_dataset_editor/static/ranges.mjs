@@ -1,25 +1,25 @@
 // Half-open intervals: the next clip starts exactly at the preceding end.
-export function nextTaskRange(lastEnd, currentFrame, totalFrames) {
+export function nextTaskRange(lastEnd, currentFrame, totalFrames, boundary = null) {
   const start = Math.max(0, Math.min(totalFrames, lastEnd));
   return {
     start,
+    // A snapped boundary is already exclusive; do not include one extra frame.
     // A cursor before the next start is a pending range, not a fabricated frame.
-    end: Math.min(totalFrames, Math.max(start, currentFrame + 1)),
+    end: Math.min(totalFrames, Math.max(start, boundary ?? currentFrame + 1)),
   };
 }
 
-export function defaultTaskRange(clips, currentFrame, totalFrames, fps) {
+export function defaultTaskRange(clips, currentFrame, totalFrames, fps, boundary = null) {
   if (clips.length) {
     return nextTaskRange(
       Math.max(...clips.map((clip) => clip.end_frame)),
       currentFrame,
       totalFrames,
+      boundary,
     );
   }
-  return {
-    start: Math.min(currentFrame, totalFrames - 1),
-    end: Math.min(totalFrames, currentFrame + 1),
-  };
+  const start = Math.min(currentFrame, totalFrames - 1);
+  return {start, end: Math.min(totalFrames, Math.max(start, boundary ?? currentFrame + 1))};
 }
 
 export function snapBoundary(
@@ -27,7 +27,7 @@ export function snapBoundary(
   boundaries,
   pixelsPerFrame,
   disabled = false,
-  thresholdPx = 8,
+  thresholdPx = 12,
 ) {
   if (disabled || pixelsPerFrame <= 0)
     return { frame: rawFrame, snapped: false };

@@ -11,6 +11,7 @@
     <header>
       <div><strong>KUAVO</strong><span> DATASET EDITOR</span></div>
       <div id="saveState">프로젝트를 열어주세요</div>
+      <button id="refresh" disabled title="프로젝트·원본·재생 위치와 미적용 입력을 유지하고 새로고침 · F5 / Ctrl+R">↻ 새로고침</button>
       <button id="snapshot">프로젝트 JSON</button>
     </header>
     <p id="compatibilityNotice" role="alert" hidden>화면은 업데이트됐지만 서버는 구형입니다. 진행 중인 작업이 끝난 후 에디터 서버를 재시작하고 브라우저를 새로고침하세요. 기존 annotation은 유지됩니다.</p>
@@ -20,6 +21,15 @@
         <select id="projectSelect" aria-label="프로젝트"></select>
         <button id="newProject">＋ 새 프로젝트</button>
         <h2>원본 데이터</h2>
+        <p id="sourceStatusSummary" class="muted source-status-summary" role="status"></p>
+        <select id="sourceStatusFilter" aria-label="라벨링 상태 필터">
+          <option value="all">전체 원본</option>
+          <option value="incomplete">미완료 원본</option>
+          <option value="completed">완료 원본</option>
+          <option value="in_progress">라벨링 중 원본</option>
+          <option value="not_started">미라벨 원본</option>
+          <option value="not_required">라벨링 불필요 원본</option>
+        </select>
         <div id="sourceList"></div>
         <button id="browseLocal">📁 파일·폴더에서 선택…</button>
         <button id="browseSSH">SSH에서 불러오기…</button>
@@ -50,7 +60,7 @@
           <p>시작하려면 왼쪽의 <b>작은 데모 열기</b>를 누르세요.</p>
         </div>
         <section id="editor" hidden>
-          <div class="row">
+          <div class="row editor-heading">
             <h2 id="sourceTitle">원본</h2>
             <select id="episodeSelect" aria-label="원본 episode"></select
             ><label class="inline"
@@ -61,13 +71,17 @@
                 <option value="validation">validation</option>
                 <option value="test">test</option>
               </select></label
-            >
+            ><label class="inline source-completion" title="이 원본의 저장된 라벨을 검토했으면 완료로 표시하세요. Step/Goal 입력이나 Export를 자동 실행하지 않습니다.">
+              <input id="sourceCompleted" type="checkbox" />라벨링 완료
+            </label><label class="inline source-completion" title="task를 시작하지 않는 등 라벨링이 필요 없는 원본으로 표시합니다. 원본·기존 라벨과 Export 대상은 변경하지 않습니다.">
+              <input id="sourceNotRequired" type="checkbox" />라벨링 불필요
+            </label>
           </div>
           <div id="cameras" class="cameras"></div>
           <div class="transport">
-            <button id="prev" title="이전 프레임 ←">←</button
+            <button id="prev" title="이전 1프레임 · Shift+←">←</button
             ><button id="play">▶ 재생</button
-            ><button id="next" title="다음 프레임 →">→</button
+            ><button id="next" title="다음 1프레임 · Shift+→">→</button
             ><select id="speed" aria-label="재생 배속">
               <option value="0.25">0.25×</option>
               <option value="0.5">0.5×</option>
@@ -86,6 +100,20 @@
             value="0"
             aria-label="영상 탐색"
           />
+          <section id="activityPanel" class="activity-panel" aria-label="영상과 동기화된 동작 요약" hidden>
+            <div class="row"><h2>동작 요약</h2><output id="activityClock"></output></div>
+            <div id="activityCards" class="activity-cards"></div>
+            <details><summary>동작 판정 기준</summary>
+              <p id="activityNote" class="muted"></p>
+              <div class="activity-thresholds">
+                <label>팔·Torso 관절 변화 (°)<input id="activityArm" type="number" min="0.01" step="0.1" /></label>
+                <label>그리퍼 변화 (%p)<input id="activityGripper" type="number" min="0.1" step="1" /></label>
+                <label>Base 속도 (cm/s)<input id="activityLinear" type="number" min="0.1" step="0.5" /></label>
+                <label>Base 회전 (°/s)<input id="activityAngular" type="number" min="0.1" step="0.5" /></label>
+              </div>
+              <p>팔은 양쪽 각각 7개, Torso는 무릎·다리·허리 pitch/yaw 4개 관절 중 최대 변화로 판정합니다. 그리퍼는 개방도 10% 이하를 닫힘, 90% 이상을 열림으로 표시합니다. 초기 비교 구간·누락 신호는 정지로 판정하지 않습니다. 개폐는 파지 성공 판정이 아닙니다.</p>
+            </details>
+          </section>
           <div class="row">
             <h2>Task 타임라인</h2>
             <span class="muted">회색 = 미지정 · 양끝 드래그 = trim</span
@@ -126,8 +154,8 @@
             <span id="snapHint" class="muted"></span>
           </div>
           <p class="muted">
-            가까운 경계는 자동 맞춤 · Alt+드래그는 자유 조정 · 드래그 중
-            영상으로 위치 확인
+            커서·선택 경계는 가까운 clip·데이터 제외 구간 시작·끝에 자동 맞춤 · Alt+클릭/드래그는 자유 조정 ·
+            ←/→는 0.5초 이동 · Shift+←/→는 1프레임 이동 · clip 내부에서 S로 분할
           </p>
           <details>
             <summary>가져온 원본 catalog의 신호 보기 (Export 재계산 전)</summary>
@@ -185,21 +213,52 @@
           <details><summary>데이터 제외 구간 (Step·Goal 공통)</summary><div id="exclusionList"></div></details>
         </section>
         <section class="jobs">
-          <h2>가져오기 · Export 작업</h2>
-          <div id="jobList">작업 없음</div>
+          <div id="jobList">
+            <section data-job-group="import">
+              <h2>가져오기 작업 · Import</h2>
+              <div class="job-current">작업 없음</div>
+              <details class="job-completed" hidden><summary>완료된 작업 0개</summary><div class="job-history"></div></details>
+            </section>
+            <section data-job-group="export">
+              <h2>Export 작업</h2>
+              <p class="muted">실제 Export 완료 결과는 전체 프로젝트에서 표시합니다. 진행·실패·취소 작업은 현재 프로젝트 기준입니다.</p>
+              <div class="job-current">작업 없음</div>
+              <details class="job-completed" open hidden><summary>실제 Export 완료 · 전체 프로젝트 0개</summary><div class="job-history"></div></details>
+            </section>
+            <section data-job-group="preview">
+              <h2>데이터 미리보기 · 현재 프로젝트</h2>
+              <p class="muted">Export 전 데이터를 확인한 기록입니다. 완료되어도 dataset 파일은 생성되지 않습니다.</p>
+              <div class="job-current">작업 없음</div>
+              <details class="job-completed" hidden><summary>미리보기 완료 · 현재 프로젝트 0개</summary><div class="job-history"></div></details>
+            </section>
+            <section data-job-group="hub" hidden>
+              <h2>Hugging Face 작업</h2>
+              <p class="muted">최근 작업이 있는 완료 목록을 먼저 표시하며, 각 목록도 최근순입니다. 미리보기는 전송하지 않습니다.</p>
+              <div class="job-current">작업 없음</div>
+              <div class="job-hub-results">
+                <details class="job-completed job-hub-plans" open hidden><summary>업로드 미리보기 완료 · 전송 안 함 0개</summary><div class="job-history"></div></details>
+                <details class="job-completed job-hub-uploads" open hidden><summary>실제 Hub 업로드 완료 0개</summary><div class="job-history"></div></details>
+              </div>
+              <details class="job-completed job-hub-cancelled" hidden><summary>취소된 이전 작업 0개</summary><div class="job-history"></div></details>
+            </section>
+            <section data-job-group="other" hidden>
+              <h2>기타 작업</h2>
+              <div class="job-current">작업 없음</div>
+              <details class="job-completed" hidden><summary>완료된 작업 0개</summary><div class="job-history"></div></details>
+            </section>
+          </div>
         </section>
       </main>
       <aside class="inspector">
+        <section class="annotation-controls" aria-label="구간 라벨 편집">
         <h2 id="annotationTitle">Step · 선택 구간</h2>
-        <p id="clipMode" class="muted">새 구간</p>
-        <p class="muted">
-          다음 task는 직전 끝점부터 시작합니다. 영상을 보고 적용하면 현재 위치까지 저장됩니다.
-          끝점을 직접 입력하거나 O·드래그로 지정하면 고정됩니다. 기존 구간은 자동 변경하지 않습니다.
-        </p>
-        <label class="check"><input id="followCursorEnd" type="checkbox" checked />새 구간 끝점 자동 · 재생 위치까지</label>
-        <p id="rangeMode" class="muted" role="status"></p>
+        <div class="range-markers">
+          <button id="markIn">현재 위치를 시작으로 · I</button>
+          <button id="markOut">현재 프레임까지 선택 · O</button>
+        </div>
+        <div class="range-fields" role="group" aria-label="구간 시작과 끝">
         <label
-          >시작 시간 (초)<input
+          >시작 · 초<input
             id="startSeconds"
             type="number"
             min="0"
@@ -207,7 +266,14 @@
             value="0"
         /></label>
         <label
-          >끝 시간 (초, 미포함)<input
+          >시작 · 프레임<input
+            id="startFrame"
+            type="number"
+            min="0"
+            value="0"
+        /></label>
+        <label
+          >끝 · 초<input
             id="endSeconds"
             type="number"
             min="0"
@@ -215,21 +281,24 @@
             value="1"
         /></label>
         <label
-          >시작 프레임 (포함)<input
-            id="startFrame"
-            type="number"
-            min="0"
-            value="0"
-        /></label>
-        <button id="markIn">현재 위치를 시작으로 · I</button>
-        <label
-          >끝 프레임 (미포함)<input
+          >끝 · 프레임<input
             id="endFrame"
             type="number"
             min="1"
             value="1"
         /></label>
-        <button id="markOut">현재 프레임까지 선택 · O</button>
+        </div>
+        <p class="range-boundary-note muted">시작 포함 · 끝 미포함</p>
+        <label class="check"><input id="followCursorEnd" type="checkbox" checked />새 구간 끝점 자동 · 재생 위치까지</label>
+        <details class="range-help">
+          <summary>구간 입력 안내</summary>
+          <p id="clipMode" class="muted">새 구간</p>
+          <p class="muted">
+            다음 task는 직전 끝점부터 시작합니다. 영상을 보고 적용하면 현재 위치까지 저장됩니다.
+            끝점을 직접 입력하거나 O·드래그로 지정하면 고정됩니다. 기존 구간은 자동 변경하지 않습니다.
+          </p>
+          <p id="rangeMode" class="muted" role="status"></p>
+        </details>
         <p id="shortRangeWarning" class="annotation-warning" role="status" hidden></p>
         <label
           >Task 문장<textarea
@@ -255,12 +324,18 @@
           <p class="muted">전체 작업 후보 · 완료할 목표를 선택하세요.</p>
           <div id="goalPresets" class="task-presets" role="group" aria-label="Goal instruction 후보"></div>
           <label class="check"><input id="goalIncludeUnlabeled" type="checkbox" />Goal 범위의 Step 미지정 구간도 포함</label>
+          <details class="annotation-help">
+          <summary>Goal 포함 범위 안내</summary>
           <p class="muted">기본은 Step이 있는 구간만 사용합니다. 체크하면 이전에 라벨을 제거한 구간도 포함될 수 있습니다.
             아래 ‘데이터 제외’로 명시한 구간은 항상 제외됩니다. 각 Goal은 별도 episode입니다.</p>
+          </details>
         </div>
+        <details class="annotation-help">
+        <summary>라벨 저장 안내</summary>
         <p class="muted" id="taskPresetHint">
           ‘상자 집기’는 위치를 고른 뒤 문장이 입력됩니다. 구간 저장은 아래 적용/수정 버튼을 누르세요.
         </p>
+        </details>
         <select id="taskReuse" aria-label="기존 task 재사용">
           <option value="">기존 task 선택…</option>
         </select>
@@ -273,8 +348,14 @@
         <button id="clearClip">clip 선택 해제</button
         ><button id="removeAnnotation">현재 트랙의 선택 구간 라벨만 제거</button>
         <button id="exclude" class="danger">데이터 제외 · 두 트랙 공통</button>
+        </section>
         <hr />
         <h2>Export</h2>
+        <label id="exportScopeLabel">Export 대상<select id="exportScope">
+          <option value="source">현재 선택한 원본만</option>
+          <option value="project">프로젝트 전체 라벨</option>
+        </select></label>
+        <p id="exportSourceName" class="muted">왼쪽에서 Export할 원본을 선택하세요.</p>
         <label>학습용 instruction 트랙<select id="exportAnnotationTrack">
           <option value="step">Step · 현재 단계 instruction</option>
           <option value="goal">Goal · 전체 작업 instruction</option>
@@ -411,6 +492,11 @@
       <div class="quality-table-wrap"><table class="quality-table"><thead><tr><th>Bag·센서</th><th>끊긴 구간</th><th>보정 기준</th><th>처리 방법</th></tr></thead><tbody id="qualityRows"></tbody></table></div>
       <div class="picker-footer"><span id="qualityStatus" role="status"></span><button id="qualityApply" class="primary" disabled>선택 반영·Export 미리보기</button></div>
     </dialog>
+    <div id="clipContextMenu" class="clip-context-menu" role="menu" aria-label="클립 메뉴" hidden>
+      <div id="clipContextTitle" class="muted"></div>
+      <button id="deleteContextClip" type="button" role="menuitem">클립 삭제</button>
+      <small class="muted">해당 라벨만 삭제 · Ctrl+Z로 복구</small>
+    </div>
     <div id="toast" role="status" hidden></div>
   </body>
 </html>

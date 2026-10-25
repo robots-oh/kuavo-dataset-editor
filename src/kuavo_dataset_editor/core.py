@@ -2,7 +2,7 @@
 from copy import deepcopy
 from fractions import Fraction
 from math import ceil
-from uuid import uuid4
+from uuid import uuid4, uuid5, NAMESPACE_URL
 
 
 class EditError(ValueError):
@@ -16,7 +16,7 @@ def frame_at(seconds, fps):
 def new_project(name="새 프로젝트"):
     return {"format_version": 1, "project_id": uuid4().hex, "revision": 0,
             "name": name, "main_task": "", "sources": [], "tasks": {}, "clips": [], "goals": [], "exclusions": [],
-            "source_splits": {}, "export": {"drop_unlabeled": True,
+            "source_splits": {}, "source_completed": {}, "source_not_required": {}, "export": {"drop_unlabeled": True,
             "join_across_gaps": False, "episode_policy": "contiguous_labeled_runs",
             "overwrite": False, "push_to_hub": False}}
 
@@ -73,7 +73,10 @@ def subtract(clips, source_id, episode_id, start, end):
         if c["end_frame"] > end:
             right = deepcopy(c)
             right.pop("merged_clip_ids", None)
-            right.update(id=uuid4().hex, parent_id=c["id"], start_frame=end, new_episode=False)
+            # Preview, gap approval and the worker repeat this pure projection.
+            # Random IDs would make unchanged labels look like a stale approval.
+            identity = f"kuavo-subtract:{source_id}:{episode_id}:{c['id']}:{end}:{c['end_frame']}"
+            right.update(id=uuid5(NAMESPACE_URL, identity).hex, parent_id=c["id"], start_frame=end, new_episode=False)
             result.append(right)
     return result
 

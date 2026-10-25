@@ -26,6 +26,7 @@ def preview_key(project,target,options):
     code=[Path(__file__).with_name(name).read_bytes() for name in
           ('data_preview.py','annotations.py','wholebody.py','recorded_tf.py','rack_reconstruction.py','masking.py','quality.py','sources.py')]
     value={'project':selection,'sources':sources,'schema':schema_name(options),
+           'source_id':options.get('source_id'),
            'mode':options.get('mode','new'),'quality':options.get('quality'),
            'rack_calibration':options.get('rack_calibration')}
     return hashlib.sha256(json.dumps(value,sort_keys=True).encode()+b''.join(code)).hexdigest()
@@ -141,6 +142,7 @@ def build_preview(project,target,options,directory,progress):
     if preview_key(project,target,options)!=key:
         raise EditError('미리보기 도중 원본이 변경되었습니다. 다시 계산하세요.')
     public={'project_id':project['project_id'],'project_revision':project['revision'],'schema':schema,
+            'source_id':options.get('source_id'),
             'frames':plan['kept_frames'],'episodes':plan['num_episodes'],'sources':reports,
             'annotation_track':options.get('annotation_track','step'),
             'reason_codes':REASONS,'read_only':True,'no_video_encoding':True,

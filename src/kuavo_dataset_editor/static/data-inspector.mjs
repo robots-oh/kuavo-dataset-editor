@@ -1,5 +1,5 @@
 /* Separate original messages from export values; text-only rendering of bag content. */
-export function setupDataInspector({api,getContext,getProject,getSchema,getAnnotationTrack=()=> 'step',preparePreview,notify}) {
+export function setupDataInspector({api,getContext,getProject,getSchema,getAnnotationTrack=()=> 'step',getExportSourceId=()=>null,preparePreview,notify}) {
   const $=id=>document.getElementById(id);
   let meta=null,report=null,previewId=null,pendingId=null,mode='raw',lastSource=null,generation=0,timer=null,calculating=false;
   const status=text=>{$('inspectorStatus').textContent=text;};
@@ -179,6 +179,7 @@ export function setupDataInspector({api,getContext,getProject,getSchema,getAnnot
     previewOptions() {
       const p=getProject();
       return report && report.project_id===p?.project_id && report.project_revision===p.revision && report.schema===getSchema() && (report.annotation_track||'step')===getAnnotationTrack()
+        && (report.source_id||null)===getExportSourceId()
         ? {preview_id:previewId,quality:report.quality} : {};
     },
     calculate:()=> $('previewCalculate').onclick(),

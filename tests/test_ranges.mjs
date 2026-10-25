@@ -13,6 +13,9 @@ assert.deepEqual(nextTaskRange(30, 10, 120), { start: 30, end: 30 });
 assert.deepEqual(nextTaskRange(30, 30, 120), { start: 30, end: 31 });
 assert.deepEqual(nextTaskRange(30, 59, 120), { start: 30, end: 60 });
 assert.deepEqual(nextTaskRange(120, 119, 120), { start: 120, end: 120 });
+assert.deepEqual(nextTaskRange(30, 60, 120, 60), { start: 30, end: 60 });
+assert.deepEqual(nextTaskRange(60, 60, 120, 60), { start: 60, end: 60 });
+assert.deepEqual(nextTaskRange(30, 119, 120, 120), { start: 30, end: 120 });
 assert.deepEqual(
   defaultTaskRange([{ end_frame: 30 }, { end_frame: 70 }], 0, 120, 30),
   { start: 70, end: 70 },
@@ -37,6 +40,8 @@ assert.deepEqual(snapBoundary(104, [100, 200], 4), {
   frame: 104,
   snapped: false,
 });
+assert.deepEqual(snapBoundary(111, [100, 200], 1), {frame:100,snapped:true});
+assert.deepEqual(snapBoundary(113, [100, 200], 1), {frame:113,snapped:false});
 assert.deepEqual(dragSelectionRange(30, 60, 120), {
   start: 30,
   end: 60,

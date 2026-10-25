@@ -174,6 +174,7 @@ def _write_dataset(project, staging, job_root, progress, transaction):
     write_json(provenance / "dataset.json", {"name": settings["name"], "repo_id": settings["repo_id"],
                                             "mode": settings["mode"], "local_only": True})
     write_json(provenance / "operation.json", {"mode": settings["mode"], "target": str(transaction.target),
+                                               'skipped_duplicate_frames':settings.get('skipped_duplicate_frames',0),
                                                'annotation_track':project.get('_annotation_track','step'),
                                                "backup": str(transaction.backup) if settings["mode"] != "new" else None,
                                                "baseline": settings["baseline"], "job": str(job_root)})
@@ -257,6 +258,8 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                              "quality_issues": len(settings['quality']['issues']),
                                              "originals_preserved": True})
     return {"frames": base_frames + finished, "episodes": settings["output_episodes"],
+            'source_names':[Path(sources[sid].get('original_path',sources[sid]['path'])).name
+                            for sid in sources if sid in used],
             'schema':schema,'mask_summary':mask_summary,'annotation_track':project.get('_annotation_track','step')}
 
 

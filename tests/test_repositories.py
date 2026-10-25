@@ -54,7 +54,18 @@ def test_new_append_replace_and_backup(tmp_path, monkeypatch):
         run(addition, 'job-unconfirmed', {'mode': 'append'})
     result = run(addition, 'job-append', {'mode': 'append', 'confirm_existing': True})
     assert result['frames'] == 12 and result['episodes'] == 2
+    assert result['episodes_added'] == 1 and result['frames_added'] == 4
+    assert result['source_names'] == ['source'] and result['project_name'] == 'append'
+    assert result['published_at'] > 0
     assert fingerprint(result['backup']) == before
+    appended_fingerprint = fingerprint(target)
+    with pytest.raises(EditError, match='이미.*Export'):
+        run(addition, 'job-duplicate', {'mode': 'append', 'confirm_existing': True})
+    assert fingerprint(target) == appended_fingerprint
+    extended = deepcopy(addition)
+    next(c for c in extended['clips'] if c['source_id'] == 'a')['end_frame'] = 26
+    remaining = prepare_export(extended, target, {'mode': 'append'})
+    assert remaining['kept_frames'] == 2 and remaining['skipped_duplicate_frames'] == 4
     appended = LeRobotSource(target)
     after = appended.rows(0)
     for a, b in zip(first, after):
