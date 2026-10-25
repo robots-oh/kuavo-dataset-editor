@@ -46,6 +46,48 @@ def test_source_scope_preserves_original_annotations():
         select_source(p,'unknown')
 
 
+@pytest.mark.parametrize('mode', ['new', 'append', 'replace'])
+@pytest.mark.parametrize('track', ['step', 'goal'])
+def test_not_required_recordings_are_excluded_without_destroying_labels(tmp_path, mode, track):
+    p = project()
+    p['goals'] = [{**c, 'id': 'goal-' + c['id']} for c in p['clips']]
+    p['source_not_required'] = {'b': True}
+    before = deepcopy(p)
+    selected = selected_project(p, tmp_path, mode, track)
+    assert compile_selection(selected)['kept_frames'] == 30
+    assert {c['source_id'] for c in selected['clips']} == {'a'}
+    assert selected['_export_not_required_sources'] == ['b']
+    assert p == before
+    assert selected_project(selected, tmp_path, mode, track)['clips'] == selected['clips']
+    p['source_not_required']['b'] = False
+    assert compile_selection(selected_project(p, tmp_path, mode, track))['kept_frames'] == 50
+
+
+def test_explicit_not_required_source_reports_how_to_enable_export(tmp_path):
+    p = project()
+    p['source_not_required'] = {'b': True}
+    with pytest.raises(EditError, match='라벨링 불필요.*Export'):
+        prepare_export(select_source(p, 'b'), tmp_path, {'mode': 'new'})
+
+
+def test_api_project_export_omits_not_required_and_preserves_saved_labels(tmp_path):
+    from kuavo_dataset_editor.app import create_app
+    from kuavo_dataset_editor.sources import demo_source
+    app = create_app(tmp_path / 'workspace', [tmp_path])
+    p = new_project('project-wide export')
+    p['sources'] = [demo_source(tmp_path / sid, sid) for sid in ('a', 'b')]
+    p = label(p, 'a', 0, 1, 6, 'keep')
+    p = label(p, 'b', 0, 2, 9, 'preserve but do not export')
+    p['source_not_required'] = {'b': True}
+    p = app.state.store.save(p, -1)
+    endpoints = {route.name: route.endpoint for route in app.routes if hasattr(route, 'endpoint')}
+    body = {'mode': 'new', 'schema': 'legacy', 'repo_name': 'new-dataset'}
+    for name in ('export_plan', 'preview_plan'):
+        plan = endpoints[name](p['project_id'], body)
+        assert plan['kept_frames'] == 5 and plan['source_names'] == ['a']
+    assert app.state.store.get(p['project_id']) == p
+
+
 def test_append_skips_overlaps_but_keeps_new_portions(tmp_path):
     p = project()
     provenance(tmp_path,p,[{'source_id':'a','source_episode':0,'source_frame':f}

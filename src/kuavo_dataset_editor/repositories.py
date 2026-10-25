@@ -120,7 +120,8 @@ def existing_identity(target):
 
 def selected_project(project, target, mode,annotation_track='step'):
     from .annotations import project_annotations
-    result = project_annotations(project,annotation_track)
+    from .export_scope import exclude_not_required
+    result = project_annotations(exclude_not_required(project),annotation_track)
     if mode == "append":
         # Imported existing labels are for editing, not instructions to duplicate
         # the target's own episodes when appending new bags to that same dataset.
@@ -152,6 +153,9 @@ def prepare_export(project, target, options=None):
         if selection.get('_export_duplicate_frames'):
             raise EditError('선택 구간은 이미 이 dataset에 Export되었습니다. 중복 추가하지 않습니다. '
                             '기존 라벨을 바꾸려면 기존 dataset을 불러와 수정하세요.')
+        if selection.get('_export_not_required_sources'):
+            raise EditError('라벨링 불필요로 표시한 원본은 Export에서 제외됩니다. '
+                            '내보내려면 해당 원본의 라벨링 불필요 표시를 해제하세요.')
         if options.get('annotation_track')=='goal':
             raise EditError('Goal에 Export할 구간이 없습니다. Goal 범위를 지정하세요. 기본은 Step이 있는 부분만 포함하며, 필요하면 Goal의 미지정 Step 포함을 선택하세요.')
         raise EditError("저장할 라벨 구간이 없습니다. 추가 모드에서는 대상 dataset 자체의 구간은 제외합니다.")

@@ -327,7 +327,7 @@ function renderSourceList() {
   $('sourceCompleted').title=sourceCompletionReady?'라벨을 수정하면 완료 표시가 자동 해제됩니다.':'추출 작업이 끝난 뒤 에디터를 다시 열면 완료 표시를 저장할 수 있습니다.';
   $('sourceNotRequired').checked=project?.source_not_required?.[sourceId]===true;
   $('sourceNotRequired').disabled=!source()||!sourceNotRequiredReady;
-  $('sourceNotRequired').title=sourceNotRequiredReady?'라벨링 작업 목록에서 제외하는 표시입니다. 기존 라벨·Export 대상은 변경하지 않습니다.':'에디터를 다시 실행하면 라벨링 불필요 표시를 저장할 수 있습니다.';
+  $('sourceNotRequired').title=sourceNotRequiredReady?'라벨과 원본은 보존하며 Export에서 제외합니다. 해제하면 다시 Export할 수 있습니다.':'에디터를 다시 실행하면 라벨링 불필요 표시를 저장할 수 있습니다.';
 }
 function render() {
   ++drawToken;

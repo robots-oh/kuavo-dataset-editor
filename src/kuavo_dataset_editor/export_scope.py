@@ -7,6 +7,16 @@ from pathlib import Path
 from .core import EditError
 
 
+def exclude_not_required(project):
+    """Exclude marked recordings from export, preserving the saved annotations."""
+    skipped = {sid for sid, value in project.get('source_not_required', {}).items() if value is True}
+    result = deepcopy(project)
+    for key in ('clips', 'goals', 'exclusions'):
+        result[key] = [c for c in result.get(key, []) if c['source_id'] not in skipped]
+    result['_export_not_required_sources'] = sorted(skipped)
+    return result
+
+
 def select_source(project, source_id):
     if source_id is None:
         return project

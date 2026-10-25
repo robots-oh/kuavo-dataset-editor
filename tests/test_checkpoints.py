@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,65 @@ from kuavo_dataset_editor.checkpoints import EpisodeCheckpoint, checkpoint_state
 from kuavo_dataset_editor.core import EditError
 from kuavo_dataset_editor.dataset_lock import dataset_lock
 from kuavo_dataset_editor.sources import write_json
+
+
+def test_unchanged_checkpoint_files_share_storage_but_never_link_to_staging(tmp_path):
+    staging, job = tmp_path / 'out.partial', tmp_path / 'job'
+    (staging / 'meta').mkdir(parents=True)
+    (staging / 'editor/history/old').mkdir(parents=True)
+    job.mkdir()
+    history = staging / 'editor/history/old/events.jsonl'
+    history.write_bytes(b'immutable history')
+    events = staging / 'editor/events.jsonl'
+    events.write_bytes(b'first events')
+    write_json(staging / 'meta/info.json', {'total_episodes': 1})
+    checkpoint = EpisodeCheckpoint(staging, job, {})
+    first = checkpoint.save(1, 4, [], [], [])
+    first_root = job / first['directory'] / 'mutable'
+    events.write_bytes(b'first events\nsecond events')
+    write_json(staging / 'meta/info.json', {'total_episodes': 2})
+    second = checkpoint.save(2, 8, [], [], [])
+    second_root = job / second['directory'] / 'mutable'
+    rel = 'editor/history/old/events.jsonl'
+    assert (first_root / rel).stat().st_ino == (second_root / rel).stat().st_ino
+    assert history.stat().st_ino != (second_root / rel).stat().st_ino
+    assert (first_root / 'editor/events.jsonl').read_bytes() == b'first events'
+    assert (second_root / 'editor/events.jsonl').read_bytes() == events.read_bytes()
+    assert (first_root / 'meta/info.json').stat().st_ino != (second_root / 'meta/info.json').stat().st_ino
+    events.write_bytes(b'broken pending metadata')
+    history.write_bytes(b'changed live file')
+    restored = checkpoint.restore()
+    assert restored['completed_episodes'] == 2
+    assert history.read_bytes() == b'immutable history'
+    assert events.read_bytes() == b'first events\nsecond events'
+
+
+def test_checkpoint_storage_reuse_falls_back_to_copy_and_keeps_previous_pointer_on_error(tmp_path, monkeypatch):
+    import kuavo_dataset_editor.checkpoints as module
+    staging, job = tmp_path / 'out.partial', tmp_path / 'job'
+    (staging / 'meta').mkdir(parents=True)
+    job.mkdir()
+    write_json(staging / 'meta/info.json', {'total_episodes': 1})
+    checkpoint = EpisodeCheckpoint(staging, job, {})
+    first = checkpoint.save(1, 4, [], [], [])
+    def no_links(*args):
+        raise OSError('hard links unavailable')
+    monkeypatch.setattr(os, 'link', no_links)
+    second = checkpoint.save(2, 8, [], [], [])
+    first_file = job / first['directory'] / 'mutable/meta/info.json'
+    second_file = job / second['directory'] / 'mutable/meta/info.json'
+    assert first_file.read_bytes() == second_file.read_bytes()
+    assert first_file.stat().st_ino != second_file.stat().st_ino
+    atomic = module.atomic_json
+    def interrupted_pointer(path, value):
+        if Path(path).name == 'export-checkpoint.json':
+            raise RuntimeError('synthetic pointer write failure')
+        return atomic(path, value)
+    monkeypatch.setattr(module, 'atomic_json', interrupted_pointer)
+    with pytest.raises(RuntimeError, match='pointer write failure'):
+        checkpoint.save(3, 12, [], [], [])
+    assert checkpoint_state(job) == second
+    assert checkpoint.restore()['completed_frames'] == 8
 
 
 def test_metadata_rollback_keeps_completed_media_and_quarantines_partial(tmp_path):

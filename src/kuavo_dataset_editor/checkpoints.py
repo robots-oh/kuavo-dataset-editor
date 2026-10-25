@@ -45,6 +45,13 @@ class EpisodeCheckpoint:
         self.identity = signature(identity)
 
     def save(self, completed, frames, rows, truncations, timings):
+        previous = checkpoint_state(self.root)
+        previous_root = None
+        if (previous and previous.get('identity') == self.identity
+                and previous.get('staging') == str(self.staging)):
+            candidate = self.root / previous['directory']
+            if candidate.parent == self.root and candidate.is_dir() and not candidate.is_symlink():
+                previous_root = candidate
         folder = self.root / ('checkpoint-' + uuid4().hex)
         folder.mkdir()
         inventory = {}
@@ -60,6 +67,17 @@ class EpisodeCheckpoint:
                 if name.split('/')[0] in ('meta', 'editor'):
                     dest = folder / 'mutable' / name
                     dest.parent.mkdir(parents=True, exist_ok=True)
+                    saved = previous_root / 'mutable' / name if previous_root else None
+                    # Link only immutable checkpoint copies to each other. Never
+                    # link the live staging file: the writer may overwrite it.
+                    if (saved and previous['files'].get(name) == inventory[name]
+                            and saved.is_file() and not saved.is_symlink()
+                            and [saved.stat().st_size, saved.stat().st_mtime_ns] == inventory[name]):
+                        try:
+                            os.link(saved, dest)
+                            continue
+                        except OSError:
+                            pass  # Filesystems without hard links retain copy semantics.
                     shutil.copy2(path, dest)
         write_json(folder / 'rows.json', rows)
         write_json(folder / 'truncations.json', truncations)
