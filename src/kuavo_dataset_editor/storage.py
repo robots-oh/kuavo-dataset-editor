@@ -15,7 +15,14 @@ def open_events(path, mode='rt'):
     path = event_path(path) if mode.startswith('r') else Path(path)
     if path.suffix == '.gz':
         return gzip.open(path, mode, compresslevel=1, encoding='utf-8')
-    return path.open(mode.replace('t', ''), encoding='utf-8')
+    try:
+        return path.open(mode.replace('t', ''), encoding='utf-8')
+    except FileNotFoundError:
+        # An offline compaction may have atomically published .gz between stat
+        # and open; retain compatibility with the old catalog pathname.
+        if mode.startswith('r'):
+            return gzip.open(path.with_name(path.name + '.gz'), mode, encoding='utf-8')
+        raise
 
 
 def dataset_event_files(root):
