@@ -36,7 +36,7 @@ def import_many(payload, directory, progress, checkpoint):
         progress(index / count, f"{index+1}/{count} · {Path(item['path']).name}")
         try:
             path = item["path"]
-            source = import_one(path, directory / item["source_id"], item["source_id"], payload["profile"],
+            source = import_one(path, directory / item["source_id"], item["source_id"], item.get("profile") or payload["profile"],
                 lambda f, m: progress((index+f)/count, f"{index+1}/{count} · {m}"))
             result["sources"].append(source)
         except Cancelled:
@@ -114,7 +114,7 @@ def import_ssh_many(payload, directory, progress, checkpoint):
                 try:
                     update('import', index, 0, Path(item['path']).name)
                     source = import_one(download['path'], Path(directory)/item['source_id'],
-                                        item['source_id'], payload['profile'],
+                                        item['source_id'], item.get('profile') or payload['profile'],
                                         lambda f,m: update('import',index,f,m))
                     result['sources'].append(source)
                 except Cancelled:

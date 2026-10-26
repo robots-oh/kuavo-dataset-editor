@@ -50,7 +50,7 @@ def test_recorded_tf_interpolates_without_latest_fallback():
     assert np.allclose(pose,[3,1,np.pi/2]) and rms<1e-8
 
 
-def recording(tmp_path,torso=False,calibration=True):
+def recording(tmp_path,torso=False,calibration=True,rwh=False):
     store = get_typestore(Stores.ROS1_NOETIC)
     for definition,name in [
         ('float64[] joint_q\n','kuavo_msgs/msg/jointData'),
@@ -75,7 +75,8 @@ def recording(tmp_path,torso=False,calibration=True):
         covariance = msg('geometry_msgs/msg/PoseWithCovariance',pose,np.zeros(36))
         return msg('apriltag_ros/msg/AprilTagDetection',np.array([tid],dtype=np.int32),
                    msg('geometry_msgs/msg/PoseWithCovarianceStamped',header(stamp,'camera'),covariance))
-    profile = json.loads((Path(__file__).parents[1]/'src/kuavo_dataset_editor/profiles/kuavo_5w.json').read_text())
+    profile = json.loads((Path(__file__).parents[1]/'src/kuavo_dataset_editor/profiles'/
+                          ('rwh_auto.json' if rwh else 'kuavo_5w.json')).read_text())
     profile['fps']=10
     topics = {topic:'sensor_msgs/msg/CompressedImage' for topic in profile['cameras'].values()}
     topics.update({'/sensors_data_raw':'kuavo_msgs/msg/sensorsData','/kuavo_arm_traj':'sensor_msgs/msg/JointState',
@@ -84,6 +85,10 @@ def recording(tmp_path,torso=False,calibration=True):
                    '/tf':'tf2_msgs/msg/TFMessage','/tf_static':'tf2_msgs/msg/TFMessage',
                    '/rwh/tag_detections':'apriltag_ros/msg/AprilTagDetectionArray'})
     if torso: topics['/joint_cmd']='kuavo_msgs/msg/jointCmd'
+    if rwh:   # rwh_auto: team topics only while moving, continuous helper topics + recorded rack pose
+        topics.update({'/rwh/capture/arm_cmd_hold':'sensor_msgs/msg/JointState','/rwh/capture/claw_state':'kuavo_msgs/msg/clawState',
+                       '/rwh/capture/claw_cmd_hold':'kuavo_msgs/msg/clawState','/rwh/navigation_proxy/cmd_vel_plan':'geometry_msgs/msg/Twist',
+                       '/rwh/capture/base_pose_in_rack':'geometry_msgs/msg/PoseStamped'})
     if calibration: topics['/dataset/base_pose_in_rack/status']='std_msgs/msg/String'
     buffer = io.BytesIO(); Image.new('RGB',(64,48),(90,140,180)).save(buffer,format='JPEG')
     bag = tmp_path/'robot.bag'
@@ -99,10 +104,22 @@ def recording(tmp_path,torso=False,calibration=True):
             image = msg('sensor_msgs/msg/CompressedImage',header(stamp,'camera'),'jpeg',np.frombuffer(buffer.getvalue(),dtype=np.uint8))
             for topic in profile['cameras'].values(): write(topic,receipt,image)
             write('/sensors_data_raw',receipt,msg('kuavo_msgs/msg/sensorsData',h,msg('kuavo_msgs/msg/jointData',np.arange(18,dtype=float))))
-            write('/kuavo_arm_traj',receipt,msg('sensor_msgs/msg/JointState',h,[],np.full(14,90.),np.array([]),np.array([])))
             claw = msg('kuavo_msgs/msg/clawState',msg('kuavo_msgs/msg/clawData',['right_claw','left_claw'],np.array([60.,50.])))
-            write('/leju_claw_state',receipt,claw); write('/leju_claw_command',receipt,claw)
-            write('/cmd_vel',receipt,msg('geometry_msgs/msg/Twist',msg('geometry_msgs/msg/Vector3',.1,.2,0.),msg('geometry_msgs/msg/Vector3',0.,0.,.3)))
+            if rwh:
+                if i==0: write('/kuavo_arm_traj',receipt,msg('sensor_msgs/msg/JointState',h,[],np.full(14,90.),np.array([]),np.array([])))
+                write('/leju_claw_state',receipt,claw)   # team topic mixes in fake messages; the filtered helper is used
+                write('/rwh/capture/arm_cmd_hold',receipt,msg('sensor_msgs/msg/JointState',h,[],np.full(14,45.),np.array([]),np.array([])))
+                write('/rwh/capture/claw_state',receipt,msg('kuavo_msgs/msg/clawState',msg('kuavo_msgs/msg/clawData',['left_claw','right_claw'],np.array([30.,40.]))))
+                write('/rwh/capture/claw_cmd_hold',receipt,msg('kuavo_msgs/msg/clawState',msg('kuavo_msgs/msg/clawData',['left_claw','right_claw'],np.array([20.,10.]))))
+                write('/rwh/navigation_proxy/cmd_vel_plan',receipt,msg('geometry_msgs/msg/Twist',msg('geometry_msgs/msg/Vector3',.05,0.,0.),msg('geometry_msgs/msg/Vector3',0.,0.,.1)))
+                yaw = np.pi/2
+                write('/rwh/capture/base_pose_in_rack',receipt,msg('geometry_msgs/msg/PoseStamped',header(stamp,'rack'),
+                      msg('geometry_msgs/msg/Pose',msg('geometry_msgs/msg/Point',-1.1+i*.01,.02,0.),
+                          msg('geometry_msgs/msg/Quaternion',0.,0.,np.sin(yaw/2),np.cos(yaw/2)))))
+            else:
+                write('/kuavo_arm_traj',receipt,msg('sensor_msgs/msg/JointState',h,[],np.full(14,90.),np.array([]),np.array([])))
+                write('/leju_claw_state',receipt,claw); write('/leju_claw_command',receipt,claw)
+                write('/cmd_vel',receipt,msg('geometry_msgs/msg/Twist',msg('geometry_msgs/msg/Vector3',.1,.2,0.),msg('geometry_msgs/msg/Vector3',0.,0.,.3)))
             pose = msg('geometry_msgs/msg/Pose',msg('geometry_msgs/msg/Point',i*.05,0.,0.),msg('geometry_msgs/msg/Quaternion',0.,0.,0.,1.))
             write('/odom',receipt,msg('nav_msgs/msg/Odometry',header(stamp,'odom'),'base_footprint',
                    msg('geometry_msgs/msg/PoseWithCovariance',pose,np.zeros(36)),
@@ -154,6 +171,27 @@ def test_full_body_export_derivation(tmp_path,torso,calibration):
     # Cache reuse must not reread raw bag or change annotation.
     again,_ = prepare_project(original,tmp_path/'job',{'schema':FULL},lambda *_:None)
     assert again==project
+
+
+def test_rwh_auto_profile_uses_helper_topics_and_recorded_rack_pose(tmp_path):
+    original = recording(tmp_path,torso=True,calibration=False,rwh=True)
+    catalog = open_source(original['sources'][0])
+    assert catalog.manifest['report']['missing_samples']['action']==0
+    assert 'action.base' not in catalog.manifest['report']['omitted_optional_features']
+    project,_ = prepare_project(original,tmp_path/'job',{'schema':FULL},lambda *_:None)
+    a = open_source(project['sources'][0])
+    for frame in (0,4):
+        row = a.row(0,frame,cameras=False)
+        assert row['validity.action'].all() and row['validity.observation.state'].all()
+        assert np.allclose(row['action'][4:18],np.pi/4)            # arm_cmd_hold (45 deg), not the stale /kuavo_arm_traj
+        assert np.allclose(row['action'][18:20],[.2,.1])           # claw_cmd_hold, names reordered
+        assert np.allclose(row['observation.state'][18:20],[.3,.4])
+        assert np.allclose(row['action'][20:23],[.05,0.,.1])       # rwh wheel plan velocity
+        assert np.allclose(row['observation.state'][20:],[-1.1+frame*.01,.02,1.,0.],atol=1e-5)
+        assert row['provenance.base_pose_source'].tolist()==[4]
+    report = json.loads(Path(a.manifest['wholebody_report']).read_text())
+    assert report['topic_sources']['arms']=='/rwh/capture/arm_cmd_hold'
+    assert report['base_pose_source']=='/rwh/capture/base_pose_in_rack'
 
 
 @pytest.mark.skipif(os.environ.get('EDITOR_TEST_EXPORT')!='1',reason='5-frame official export smoke')
