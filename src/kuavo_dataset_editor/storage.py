@@ -124,8 +124,9 @@ def pack_revision(db, project):
         raw = json.dumps(source, ensure_ascii=False, sort_keys=True,
                          separators=(',', ':')).encode('utf-8')
         digest = hashlib.sha256(raw).hexdigest()
-        db.execute('INSERT OR IGNORE INTO revision_sources VALUES (?,?)',
-                   (digest, zlib.compress(raw, 1)))
+        if db.execute('SELECT 1 FROM revision_sources WHERE digest=?', (digest,)).fetchone() is None:
+            db.execute('INSERT OR IGNORE INTO revision_sources VALUES (?,?)',
+                       (digest, zlib.compress(raw, 1)))
         refs.append(digest)
     result.pop('sources', None)
     result['_storage_sources_v1'] = refs

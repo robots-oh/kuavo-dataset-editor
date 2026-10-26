@@ -1,5 +1,12 @@
 # RWH + ver2 통합 보고서 — 2026-10-26
 
+후속 업데이트: 사용자 승인 및 최근 VR/RWH bag 각 1개 검증 후
+[PR #2](https://github.com/robots-oh/kuavo-dataset-editor/pull/2)와
+[저장 최적화 PR #3](https://github.com/robots-oh/kuavo-dataset-editor/pull/3)를 main에 병합했다.
+아래 본문은 최초 통합 시점의 기록이다. 이후의 이벤트 chunk 저장,
+편집 이력 중복 제거 및 실제 workspace 정리는 [저장 공간 관리](STORAGE.md)를 따른다.
+두 기존 서버는 사용자의 후속 지시에 따라 자동 재시작하지 않는다.
+
 ## 기준과 반영 범위
 
 - 보존된 현장 적용 전 tag: `editor_v1` → `558d4aa`.

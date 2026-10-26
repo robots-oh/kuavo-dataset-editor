@@ -21,6 +21,14 @@ def emit(**value):
     print(json.dumps(value, ensure_ascii=False), flush=True)
 
 
+def sync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def digest(path, compressed=False):
     result = hashlib.sha256()
     with (gzip.open(path, 'rb') if compressed else Path(path).open('rb')) as stream:
@@ -36,16 +44,20 @@ def compact_db(path):
         db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
         backup = path.with_name(path.name + '.pre-storage-v1.gz')
         if not backup.exists():
-            temporary = backup.with_name(backup.name + '.pending')
+            temporary = backup.with_name(backup.name + '.' + uuid4().hex + '.pending')
             before_hash = hashlib.sha256()
             emit(phase='database_backup_start', path=str(path))
             with path.open('rb') as source, gzip.open(temporary, 'wb', compresslevel=1) as dest:
+                os.fchmod(dest.fileno(), path.stat().st_mode & 0o777)
                 for block in iter(lambda: source.read(4 * 1024 * 1024), b''):
                     before_hash.update(block)
                     dest.write(block)
             if digest(temporary, compressed=True) != before_hash.digest():
                 raise ValueError('Database backup verification failed')
+            with temporary.open('rb') as stream:
+                os.fsync(stream.fileno())
             temporary.replace(backup)
+            sync_directory(backup.parent)
             emit(phase='database_backup_verified', path=str(backup), bytes=backup.stat().st_size)
         init_sources(db)
         db.commit()
@@ -88,6 +100,10 @@ def paths_under(roots):
                        and (parent / name).stat().st_dev == device
                        and not name.startswith(('checkpoint-', 'interrupted-'))
                        and name not in ('.git',)]
+            if 'catalog.json' in names:
+                # Catalog camera trees can contain millions of JPEGs. Nothing
+                # below them is a maintenance target; events are at catalog root.
+                dirs[:] = []
             for name in names:
                 path = parent / name
                 if not path.is_symlink():
@@ -113,6 +129,7 @@ def compress_events(paths):
         try:
             original_hash = hashlib.sha256()
             with first.open('rb') as source, temporary.open('xb') as raw:
+                os.fchmod(raw.fileno(), before.st_mode & 0o777)
                 with gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=1, mtime=0) as dest:
                     for block in iter(lambda: source.read(4 * 1024 * 1024), b''):
                         original_hash.update(block)
@@ -130,6 +147,8 @@ def compress_events(paths):
             temporary.replace(destinations[0])
             for dest in destinations[1:]:
                 os.link(destinations[0], dest)
+            for parent in {dest.parent for dest in destinations}:
+                sync_directory(parent)
             for path in aliases:
                 path.unlink()
             # nlink may include checkpoints outside the scan; do not overclaim reclaimed bytes.
