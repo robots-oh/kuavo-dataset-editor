@@ -273,7 +273,8 @@ episode/frame/global index, task 목록과 통계를 새로 작성한다.
 - `project.json`: 고정한 편집 snapshot.
 - `export_plan.json`: 선택 구간과 출력 episode 구성.
 - `frame_mapping.parquet`: 출력 frame → 원본 episode/frame/clip/task/split.
-- `events.jsonl`: 선택 구간에 포함된 TF/tag/Quest/세션 이벤트와 출력 시간.
+- `events.index.json`, `event_chunks/*.jsonl.gz`: 선택 구간의 TF/tag/Quest/세션 이벤트와 출력 시간.
+  기존 `events.jsonl`도 계속 읽을 수 있다. 새 Append는 과거 이벤트 전체를 재복사하지 않는다.
 - `truncation.json`: 편집 때문에 원본 시작/끝이 잘렸는지. 성공/terminal 값은 원본 그대로 보존한다.
 - `report.json`: writer 버전, 출력 수와 작은 loader round-trip 결과.
 - `quality.json`: 누락 구간, 승인한 보정/제외 방법, 원본 이웃 프레임과 메시지 시각.
@@ -285,6 +286,10 @@ Export 시작 후 계속 편집해도 진행 중인 job의 라벨은 바뀌지 �
 학습 시 action chunk는 episode 경계를 넘어가면 안 된다.
 로컬 Export는 Hub에 접속하지 않는다. Hub 공유는 아래 별도 기능으로만 실행한다.
 이 도구는 학습 실행이나 로봇 제어를 수행하지 않는다.
+
+영상 미리보기 캐시는 Export 후에도 유지한다. 편집 이력은 공통 source manifest를
+중복 저장하지 않으며, 이벤트는 무손실 압축한다. 기존 workspace의 오프라인 정리,
+복구본과 호환성 주의사항은 [저장 공간 관리](docs/STORAGE.md)를 참고한다.
 
 ## Hugging Face에 공유하기 (선택)
 
