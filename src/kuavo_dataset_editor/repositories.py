@@ -288,6 +288,8 @@ class RepositoryTransaction:
         else:
             if fingerprint(self.target) != self.plan["baseline"]:
                 raise EditError("기존 dataset이 작업 중 변경됐습니다. 결과는 partial에 보존했습니다.")
+            from .storage import share_unchanged_media
+            share_unchanged_media(self.target, self.staging)
             if mode == "replace":
                 for item in self.extra_items:
                     destination = self.staging / item.name

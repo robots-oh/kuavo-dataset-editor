@@ -7,6 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from .core import EditError, compile_selection, normalize_step_annotations, merge_adjacent_clips
 from .shared_annotations import source_annotations, copy_source_annotations
+from .storage import init_sources, pack_revision, unpack_revision
 
 
 class Store:
@@ -20,6 +21,7 @@ class Store:
         self.db.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, revision INTEGER, payload TEXT)")
         self.db.execute("CREATE TABLE IF NOT EXISTS revisions (id TEXT, revision INTEGER, payload TEXT, PRIMARY KEY(id, revision))")
         self.db.execute("CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, payload TEXT)")
+        init_sources(self.db)
         self.db.commit()
         # A killed process cannot own a running job after restart.
         for job in self.jobs():
@@ -35,7 +37,7 @@ class Store:
             row = self.db.execute("SELECT payload FROM projects WHERE id=?", (pid,)).fetchone() if revision is None else self.db.execute("SELECT payload FROM revisions WHERE id=? AND revision=?", (pid, revision)).fetchone()
             if not row:
                 raise KeyError(pid)
-            project = json.loads(row[0])
+            project = unpack_revision(self.db, row[0])
             if revision is None and project.get('_annotation_track') != 'goal':
                 merged_clips = merge_adjacent_clips(project['clips'], project['tasks'])
                 if merged_clips != project['clips']:
@@ -81,7 +83,7 @@ class Store:
         self.db.execute('INSERT OR REPLACE INTO projects VALUES (?,?,?)',
                         (project['project_id'], revision, payload))
         self.db.execute('INSERT INTO revisions VALUES (?,?,?)',
-                        (project['project_id'], revision, payload))
+                        (project['project_id'], revision, pack_revision(self.db, project)))
 
     def save(self, project, expected):
         compile_selection(project)
@@ -154,7 +156,7 @@ class Store:
                     project["revision"] = revision + 1
                     encoded = json.dumps(project, ensure_ascii=False)
                     self.db.execute("UPDATE projects SET revision=?,payload=? WHERE id=?", (revision + 1, encoded, pid))
-                    self.db.execute("INSERT INTO revisions VALUES (?,?,?)", (pid, revision + 1, encoded))
+                    self.db.execute("INSERT INTO revisions VALUES (?,?,?)", (pid, revision + 1, pack_revision(self.db, project)))
                     changed.append(pid)
                 self.db.commit()
             except BaseException:

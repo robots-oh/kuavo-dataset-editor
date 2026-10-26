@@ -33,7 +33,8 @@ def frozen(name):
     """Editor files that are never rewritten once written: previous exports' history snapshots.
 
     events.jsonl is appended only after the episode loop, which first detaches it (see detach)."""
-    return name.startswith('editor/history/') or name == 'editor/events.jsonl'
+    return (name.startswith(('editor/history/', 'editor/event_chunks/'))
+            or name in ('editor/events.jsonl', 'editor/events.jsonl.gz'))
 
 
 def link_or_copy(source, destination):
@@ -116,6 +117,18 @@ class EpisodeCheckpoint:
         atomic_json(folder / 'state.json', state)
         # Only this pointer advertises completion, after all sidecars are ready.
         atomic_json(self.root / 'export-checkpoint.json', state)
+        # The pointer is durable first. Keep its predecessor as a recovery fallback,
+        # not every cumulative rows.json produced over the lifetime of the job.
+        keep = {folder, previous_root}
+        for old in self.root.glob('checkpoint-*'):
+            if old not in keep and old.is_dir() and not old.is_symlink():
+                marker = old / 'state.json'
+                try:
+                    owned = json.loads(marker.read_text())
+                except (OSError, ValueError):
+                    continue
+                if owned.get('identity') == self.identity and owned.get('staging') == str(self.staging):
+                    shutil.rmtree(old)
         return state
 
     def restore(self):
