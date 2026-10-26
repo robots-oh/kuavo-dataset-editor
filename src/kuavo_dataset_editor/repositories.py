@@ -85,18 +85,20 @@ def preserve_editor_history(target, staging, job_id):
     if not source.is_dir():
         return
     destination = Path(staging) / "editor"
+    from .checkpoints import link_or_copy
     history = destination / "history"
     if not history.exists() and (source / "history").is_dir():
-        shutil.copytree(source / "history", history)
+        shutil.copytree(source / "history", history, copy_function=link_or_copy)
     snapshot = history / job_id
     snapshot.mkdir(parents=True)
+    # The published target is only ever replaced by rename, never rewritten, so its files can be linked.
     for item in source.iterdir():
         if item.name == "history":
             continue
         if item.is_dir():
-            shutil.copytree(item, snapshot / item.name)
+            shutil.copytree(item, snapshot / item.name, copy_function=link_or_copy)
         else:
-            shutil.copy2(item, snapshot / item.name)
+            link_or_copy(item, snapshot / item.name)
 
 
 def repo_identity(name):
@@ -259,7 +261,11 @@ class RepositoryTransaction:
             else:
                 self.snapshot = deepcopy(self.selection)
             if self.plan["mode"] == "append" and not self.resuming:
-                shutil.copytree(self.target, self.staging, copy_function=shutil.copy2)
+                from .checkpoints import frozen, link_or_copy
+                def copy(source, destination):
+                    name = Path(source).relative_to(self.target).as_posix()
+                    return (link_or_copy if frozen(name) else shutil.copy2)(source, destination)
+                shutil.copytree(self.target, self.staging, copy_function=copy)
             # Preserve dataset cards, licenses, Git metadata and extra root assets on replacement.
             if self.plan["mode"] == "replace":
                 self.extra_items = [p for p in self.target.iterdir() if p.name not in

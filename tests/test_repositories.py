@@ -43,6 +43,7 @@ def test_new_append_replace_and_backup(tmp_path, monkeypatch):
     assert json.loads((target / 'editor/dataset.json').read_text())['name'] == 'team/rack-box-v1'
     first = LeRobotSource(target).rows(0)
     before = fingerprint(target)
+    events_before = (target / 'editor/events.jsonl').read_bytes()
     addition = new_project('append')
     addition['sources'] = [source]
     addition = label(addition, 'a', 0, 20, 24, 'carry')
@@ -55,6 +56,11 @@ def test_new_append_replace_and_backup(tmp_path, monkeypatch):
     result = run(addition, 'job-append', {'mode': 'append', 'confirm_existing': True})
     assert result['frames'] == 12 and result['episodes'] == 2
     assert fingerprint(result['backup']) == before
+    # Provenance is hard linked, not copied, and the append wrote to its own detached copy.
+    backup_events = Path(result['backup']) / 'editor/events.jsonl'
+    assert backup_events.read_bytes() == events_before
+    assert (target / 'editor/history/job-append/events.jsonl').stat().st_ino == backup_events.stat().st_ino
+    assert (target / 'editor/events.jsonl').stat().st_ino != backup_events.stat().st_ino
     appended = LeRobotSource(target)
     after = appended.rows(0)
     for a, b in zip(first, after):
