@@ -150,3 +150,39 @@ Generated test conversions and newly extracted test images were removed, keeping
 the small validation report. Full Python regression: 163 passed, 9 skipped; docs
 generation/link checks passed separately. Small official writer new/append/replace
 and episode recovery tests also passed.
+
+## Measured existing-workspace reduction (2026-10-26)
+
+Actual allocated bytes were measured with `du -sx -B1` over the same three roots,
+in the same order, so hardlink aliases count once. Original bags are excluded;
+the retained SQLite rollback archives are included in the final footprint.
+
+| Scope | Before (GiB) | After (GiB) | Freed (GiB) |
+| --- | ---: | ---: | ---: |
+| Shared import cache | 166.31 | 110.73 | 55.58 |
+| RWH workspace | 199.27 | 39.66 | 159.61 |
+| VR workspace | 97.46 | 17.82 | 79.65 |
+| Total | **463.05** | **168.21** | **294.84** |
+
+The total reduction is **63.7%**. Key contributors (not additional totals to sum):
+
+- 207 unique event-file groups: 271.99 GiB raw to 33.98 GiB compressed, verified
+  by decompressed SHA256 equality before removing the uncompressed aliases.
+- Identical backup videos: 40.12 GiB freed through content-checked sharing.
+- The two annotation databases: 11.97 GiB to 159.12 MiB, with every historical
+  revision reconstructed and checked during migration.
+- Completed-export recovery checkpoints removed only where a complete published
+  output remained; failed/unpublished job artifacts were conservatively retained.
+
+All 11 saved current-project JSON payload hashes are identical before/after; all
+969 historical revisions remain. Preview images were not deleted. The workspaces
+were not combined, annotations were not transferred between them, and the original
+bag files were not edited. Per the user's later instruction, the two old editor
+servers were not restarted.
+
+An additional relocation plan found 59 missing original bag filenames in the
+copied VR workspace and no matching originals in the checked primary, auxiliary,
+or discarded bag folders. Therefore **zero paths were rewritten**. Their images
+and annotations remain, but wholebody re-derivation requires restoring those
+original bags. Their absence was a pre-existing condition, not a result of this
+compaction; preserving preview caches is especially important for these sources.
