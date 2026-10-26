@@ -19,10 +19,10 @@ assert.deepEqual(
 );
 assert.equal(BOX_PICK_PRESETS.length,4);
 assert.deepEqual(BOX_PICK_PRESETS.map(p=>p.instruction),[
-  'Pick up the box from the left side of the middle shelf of the rack.',
-  'Pick up the box from the right side of the middle shelf of the rack.',
   'Pick up the box from the left side of the top shelf of the rack.',
   'Pick up the box from the right side of the top shelf of the rack.',
+  'Pick up the box from the left side of the middle shelf of the rack.',
+  'Pick up the box from the right side of the middle shelf of the rack.',
 ]);
 assert.equal(new Set([...TASK_PRESETS,...BOX_PICK_PRESETS].map(p=>p.id)).size,8);
 class Element {

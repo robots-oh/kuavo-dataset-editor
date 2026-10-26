@@ -18,6 +18,10 @@
 
 편집 중인 트랙과 Export할 트랙은 별도 선택이다. Goal을 편집했다고 Export가 자동으로 Goal로 바뀌지는 않는다.
 
+타임라인의 Step/Goal 바 또는 구간 목록을 **우클릭 → 클립 삭제**하면 그 클립의 라벨만 삭제한다.
+다른 트랙의 라벨과 원본 데이터는 유지되며 **되돌리기 / Ctrl+Z**로 복구할 수 있다.
+우클릭으로 메뉴를 여는 동안에는 편집 트랙·재생 위치·입력 초안을 바꾸지 않는다.
+
 ### 연속 annotation과 짧은 구간 안내
 
 - 새 구간은 기본적으로 직전 끝점에서 시작하고 **끝점 자동 · 재생 위치까지**가 켜진다.
@@ -89,6 +93,8 @@ bash run.sh export project.json /data/box-goal-v1 \
 ## 저장·복구·다른 PC
 
 Goal/Step/공통 제외는 기존 SQLite project revision에 함께 저장된다. Undo/Redo와 프로젝트 JSON에도 함께 들어간다.
+Undo/Redo는 서버에 보존된 revision의 라벨·제외·split만 복원한다. 원본 등록 정보와 bag의 나노초 시각은
+브라우저에서 다시 쓰지 않으며, 이후 import로 추가된 원본과 그 라벨은 유지한다.
 Export에는 `editor/annotations.json`, `editor/project.json`에 계층 snapshot이 남고,
 `editor/frame_mapping.parquet`에 선택 트랙·원본 Step/Goal ID와 문장이 남는다. 프레임 조회는 정렬된 인덱스를 사용한다.
 추가/수정 Export 시 이전 metadata는 기존 history/복구본 정책으로 보존한다.

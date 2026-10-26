@@ -18,11 +18,8 @@ jobs:
           node-version: '22'
       - run: bash setup.sh --minimal --with-test --with-docs
       - run: bash run.sh python -m pytest -q tests
-      - run: node tests/test_ranges.mjs
-      - run: node tests/test_annotation_workflow.mjs
-      - run: node tests/test_tasks.mjs
-      - run: node tests/test_file_picker.mjs
-      - run: node tests/test_folder_picker.mjs
-      - run: node tests/test_quality_review.mjs
-      - run: node tests/test_data_inspector.mjs
-      - run: node tests/test_goals.mjs
+      - name: All JavaScript editor tests
+        run: |
+          for test_file in tests/test_*.mjs; do
+            node "$test_file"
+          done

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import time
 from uuid import uuid4
 
 from .core import EditError, compile_selection
@@ -123,15 +124,8 @@ def selected_project(project, target, mode,annotation_track='step',source_ids=No
     """source_ids: export only these recordings of the project (None = all). Lets one project collect many
     recordings while 'append' adds just the new ones instead of re-adding everything already exported."""
     from .annotations import project_annotations
-    result = project_annotations(project,annotation_track)
-    if source_ids is not None:
-        keep = set(source_ids)
-        missing = keep - {s["source_id"] for s in result["sources"]}
-        if missing or not keep:
-            raise EditError("내보낼 원본이 프로젝트에 없습니다: " + ", ".join(sorted(missing)) if missing else "내보낼 원본을 하나 이상 고르세요.")
-        result["sources"] = [s for s in result["sources"] if s["source_id"] in keep]
-        for key in ('clips','goals','exclusions'):
-            result[key] = [c for c in result.get(key,[]) if c['source_id'] in keep]
+    from .export_scope import exclude_not_required, select_sources
+    result = project_annotations(exclude_not_required(select_sources(project, source_ids)),annotation_track)
     if mode == "append":
         # Imported existing labels are for editing, not instructions to duplicate
         # the target's own episodes when appending new bags to that same dataset.
@@ -142,13 +136,16 @@ def selected_project(project, target, mode,annotation_track='step',source_ids=No
         result["clips"] = [c for c in result["clips"] if c["source_id"] not in base_ids]
         for key in ('goals','exclusions'):
             result[key]=[c for c in result.get(key,[]) if c['source_id'] not in base_ids]
+        from .export_scope import skip_exported_frames
+        result = skip_exported_frames(result, target)
     return result
 
 
 def prepare_export(project, target, options=None):
     from .exporter import clean_features
     from .sources import open_source
-    options = options or {}
+    from .export_scope import normalize_export_options
+    options = normalize_export_options(options)
     mode = options.get("mode", "new")
     if mode not in ("new", "append", "replace"):
         raise EditError("알 수 없는 dataset 저장 방식입니다.")
@@ -158,6 +155,12 @@ def prepare_export(project, target, options=None):
     selection, quality = resolve_quality(selection, options.get('quality'))
     plan = compile_selection(selection)
     if not plan["runs"]:
+        if selection.get('_export_duplicate_frames'):
+            raise EditError('선택 구간은 이미 이 dataset에 Export되었습니다. 중복 추가하지 않습니다. '
+                            '기존 라벨을 바꾸려면 기존 dataset을 불러와 수정하세요.')
+        if selection.get('_export_not_required_sources'):
+            raise EditError('라벨링 불필요로 표시한 원본은 Export에서 제외됩니다. '
+                            '내보내려면 해당 원본의 라벨링 불필요 표시를 해제하세요.')
         if options.get('annotation_track')=='goal':
             raise EditError('Goal에 Export할 구간이 없습니다. Goal 범위를 지정하세요. 기본은 Step이 있는 부분만 포함하며, 필요하면 Goal의 미지정 Step 포함을 선택하세요.')
         raise EditError("저장할 라벨 구간이 없습니다. 추가 모드에서는 대상 dataset 자체의 구간은 제외합니다.")
@@ -205,6 +208,7 @@ def prepare_export(project, target, options=None):
             raise EditError("수정할 dataset을 먼저 이 프로젝트의 원본으로 불러오세요.")
         baseline = fingerprint(target)
     return {**plan, **identity, "mode": mode, "target": str(target), "baseline": baseline, "quality": quality,
+            'skipped_duplicate_frames':selection.get('_export_duplicate_frames',0),
             'annotation_track':options.get('annotation_track','step'),
             'schema':schema,'schema_contract':contract(schema) if schema!='legacy' else None,
             "existing_frames": base_frames, "existing_episodes": base_episodes,
@@ -228,8 +232,9 @@ def retarget_project(project, old_path, backup, baseline):
 class RepositoryTransaction:
     def __init__(self, project, target, job_root, options=None):
         self.project, self.job_root = project, Path(job_root).resolve()
-        self.options = options or {}
-        self.plan = prepare_export(project, target, options)
+        from .export_scope import normalize_export_options
+        self.options = normalize_export_options(options)
+        self.plan = prepare_export(project, target, self.options)
         if not self.plan['quality']['ready']:
             raise EditError('누락 데이터가 있습니다. 미리보기에서 끊긴 프레임 수와 시간을 확인하고 보정/제외를 선택하세요.')
         from .quality import selection_with_quality
@@ -298,6 +303,9 @@ class RepositoryTransaction:
                 self.backup.rename(self.target)
             raise
         result.update(path=str(self.target), mode=mode, repo_id=self.plan["repo_id"],
+                      published_at=time.time(), project_name=self.project.get('name'),
+                      episodes_added=self.plan['num_episodes'],
+                      skipped_duplicate_frames=self.plan.get('skipped_duplicate_frames',0),
                       dataset_name=self.plan["name"], frames_added=self.plan["kept_frames"],
                       backup=str(self.backup) if mode != "new" else None)
         if mode != "new":

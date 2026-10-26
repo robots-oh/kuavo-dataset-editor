@@ -19,11 +19,14 @@ PAGES = [
     ("docs/WHOLEBODY_SCHEMA.md", "Torso·랙 state / action·mask"),
     ("docs/DATA_INSPECTION.md", "Raw bag · Export 미리보기"),
     ("docs/GOAL_ANNOTATIONS.md", "Goal / Step 두 계층 라벨"),
+    ("docs/SOURCE_STATUS.md", "원본별 라벨링 상태"),
+    ("docs/ACTIVITY_VIEW.md", "영상 동작 요약"),
     ("docs/HUGGING_FACE.md", "Hugging Face 업로드"),
     ("docs/LEROBOT_COMPATIBILITY.md", "LeRobot 버전·업데이트"),
     ("docs/ARCHITECTURE.md", "구조"),
     ("docs/DEVELOPMENT.md", "개발·테스트·패키징"),
     ("docs/VALIDATION.md", "검증 범위"),
+    ("docs/INTEGRATION_VER2.md", "RWH + ver2 통합 보고서"),
     ("docs/GITHUB_PAGES.md", "문서 사이트 배포"),
 ]
 

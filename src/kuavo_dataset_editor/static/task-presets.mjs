@@ -38,7 +38,7 @@ export function setupTaskPresets({ input, presets, locationPanel, locations }) {
       }
     });
     if (preset.id === "pick_box") {
-      button.title = "중간/상단 선반의 왼쪽·오른쪽 상자를 선택하세요.";
+      button.title = "상단/중간 선반의 왼쪽·오른쪽 상자를 선택하세요.";
       button.setAttribute("aria-controls", locationPanel.id);
       button.setAttribute("aria-expanded", "false");
     }

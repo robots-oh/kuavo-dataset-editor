@@ -4,6 +4,9 @@ import { GOAL_PRESETS,trackClips,coveringGoal,goalDraft,contiguousSteps } from '
 import { setupFilePicker } from "./file-picker.mjs";
 import { setupQualityReview } from "./quality-review.mjs";
 import { setupDataInspector } from "./data-inspector.mjs";
+import { setupActivity } from './activity.mjs';
+import { restoreHubTarget } from './hub-target.mjs';
+import { sourceLabelingStatus, matchesSourceFilter } from './source-status.mjs';
 import {
   defaultTaskRange,
   nextTaskRange,
@@ -28,9 +31,18 @@ let undo = [],
 let signalData = [],
   jobTimer = null;
 let selectedImportPaths = [];
+let pendingRequests = 0;
+let initializing = true;
+let clipMenuTarget = null;
 let annotationTrack='step';
 let annotationReady=false;
+let sourceExportReady=false;
+let revisionHistoryRestore=false;
+let sourceCompletionReady=false;
+let sourceNotRequiredReady=false;
+let sharedPollBusy=false;
 let autoRangeEnd=true;
+let cursorBoundary=null,seekDragging=false,seekAlt=false;
 const annotationDrafts={step:'',goal:''};
 const colors = [
   "#377b74",
@@ -132,28 +144,33 @@ $('goalPresets').replaceChildren(...GOAL_PRESETS.map(p=>{
   b.onclick=()=>{$('task').value=p.instruction;updatePresetSelection();};return b;
 }));
 async function api(path, body, method = "POST") {
-  const r = await fetch(
-    path,
-    body === undefined
-      ? {}
-      : {
-          method,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-  );
-  if (!r.ok) {
-    let e;
-    try {
-      e = await r.json();
-    } catch {
-      e = { detail: await r.text() };
-    }
-    throw Error(
-      typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail),
+  if (body !== undefined) pendingRequests++;
+  try {
+    const r = await fetch(
+      path,
+      body === undefined
+        ? {}
+        : {
+            method,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
     );
+    if (!r.ok) {
+      let e;
+      try {
+        e = await r.json();
+      } catch {
+        e = { detail: await r.text() };
+      }
+      throw Error(
+        typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail),
+      );
+    }
+    return await r.json();
+  } finally {
+    if (body !== undefined) pendingRequests--;
   }
-  return r.json();
 }
 function action(fn) {
   return async (...a) => {
@@ -163,6 +180,88 @@ function action(fn) {
       toast(e.message);
     }
   };
+}
+const refreshFields = [
+  'task','startFrame','endFrame','startSeconds','endSeconds','newEpisode',
+  'goalIncludeUnlabeled','speed','zoom','keptOnly','sourceStatusFilter',
+  'exportAnnotationTrack','exportSchema','exportMode','exportScope','repoName','exportPath',
+  'confirmExisting','hubPath','hubRepo','hubPrivate','importPath','profile','profilePick',
+];
+function captureEditorState() {
+  return {projectId:project?.project_id,sourceId,episodeId,frame,selected,cursorBoundary,
+    annotationTrack,annotationDrafts,autoRangeEnd,selectedImportPaths,
+    fields:Object.fromEntries(refreshFields.map(id=>[id,{value:$(id).value,checked:$(id).checked}]))};
+}
+function refreshEditor() {
+  if (initializing || pendingRequests || exportBusy || document.querySelector('dialog[open]')) {
+    toast('화면 불러오기·저장·설정 확인이 끝나거나 열린 창을 닫은 뒤 새로고침하세요.');
+    return;
+  }
+  // This is a tab-local draft, never a saved annotation or an Export request.
+  const state = captureEditorState();
+  try {
+    // A retry after a failed page load must not overwrite the earlier draft.
+    if (project || !sessionStorage.getItem('editorRefresh'))
+      sessionStorage.setItem('editorRefresh',JSON.stringify(state));
+  } catch {
+    toast('미적용 입력을 임시 보관할 수 없어 새로고침을 취소했습니다. 먼저 라벨을 적용하세요.');
+    return;
+  }
+  window.location.reload();
+}
+function restoreRefreshState(state, notify=true) {
+  if (!state || state.projectId!==project?.project_id) return;
+  const restoredSource=project.sources.find(s=>s.source_id===state.sourceId);
+  const restoredEpisode=restoredSource?.episodes.find(e=>e.episode_id===state.episodeId);
+  if (state.sourceId && !restoredEpisode) return;
+  if (restoredEpisode) {
+    sourceId=state.sourceId;episodeId=state.episodeId;
+    frame=Math.max(0,Math.min(restoredEpisode.num_frames-1,Number(state.frame)||0));
+    cursorBoundary=Number.isInteger(state.cursorBoundary) && state.cursorBoundary>=0
+      && state.cursorBoundary<=restoredEpisode.num_frames ? state.cursorBoundary : null;
+  }
+  annotationTrack=state.annotationTrack==='goal'?'goal':'step';
+  Object.assign(annotationDrafts,state.annotationDrafts);
+  selected=clips().some(c=>c.id===state.selected)?state.selected:null;
+  render();
+  for (const id of refreshFields) {
+    const field=state.fields?.[id];
+    if (!field) continue;
+    $(id).value=field.value;
+    if (typeof field.checked==='boolean') $(id).checked=field.checked;
+  }
+  autoRangeEnd=!!state.autoRangeEnd;
+  selectedImportPaths=state.selectedImportPaths||[];
+  renderImportPaths();
+  updateExportMode();
+  $('confirmExisting').checked=!!state.fields?.confirmExisting?.checked;
+  $('timeline').style.width=100*Number($('zoom').value)+'%';
+  renderSourceList();renderTimeline();renderClips();updatePresetSelection();
+  // Keep even an unfinished seconds entry (e.g. "123.") until it is applied.
+  for (const id of ['startSeconds','endSeconds'])
+    if (state.fields?.[id]) $(id).value=state.fields[id].value;
+  if(notify) toast('새로고침 완료 · 미적용 입력은 초안으로 유지했습니다.');
+}
+async function pollLinkedProject() {
+  const blocked=()=>initializing || pendingRequests || exportBusy || playing
+    || document.querySelector('dialog[open], :active');
+  if(sharedPollBusy || !project?.annotation_group || blocked()) return;
+  sharedPollBusy=true;
+  const original=project;
+  try {
+    const status=await api(`/api/projects/${original.project_id}/revision`);
+    if(project!==original || blocked() || status.revision===original.revision) return;
+    const updated=await api(`/api/projects/${original.project_id}`);
+    if(project!==original || blocked()) return;
+    const state=captureEditorState();
+    project=updated;undo=[];redo=[];
+    restoreRefreshState(state,false);
+    $('undo').disabled=true;$('redo').disabled=true;
+    await fetchFrame();
+    toast('연결된 프로젝트의 라벨·진행 상태를 반영했습니다. 미적용 입력은 초안으로 유지했습니다.');
+  } catch {
+    // Keep drafts and retry after a temporary server disconnect.
+  } finally {sharedPollBusy=false;}
 }
 async function projectList() {
   const ps = await api("/api/projects");
@@ -178,7 +277,9 @@ async function loadProject(pid) {
   localStorage.setItem("editorProject", pid);
   undo = [];
   redo = [];
+  $('sourceStatusFilter').value='all';
   sourceId = project.sources[0]?.source_id || null;
+  cursorBoundary=null;
   episodeId = source()?.episodes[0]?.episode_id || 0;
   frame = resumeFrame();
   selected = null;
@@ -186,19 +287,18 @@ async function loadProject(pid) {
   render();
   await fetchFrame();
 }
-function render() {
-  ++drawToken;
-  updatePresetSelection();
-  renderTrackControls();
-  $("saveState").textContent = project
-    ? `${project.name} · 저장됨 r${project.revision}`
-    : "프로젝트를 열어주세요";
-  $("empty").hidden = !!source();
-  $("editor").hidden = !source();
+function renderSourceList() {
+  const sources=project?.sources||[],filter=$('sourceStatusFilter').value;
+  const counts={completed:0,in_progress:0,not_started:0,not_required:0};
+  for (const s of sources) counts[sourceLabelingStatus(project,s.source_id).key]++;
+  $('sourceStatusSummary').textContent=`완료 ${counts.completed} · 라벨링 중 ${counts.in_progress} · 미라벨 ${counts.not_started} · 불필요 ${counts.not_required} / 전체 ${sources.length}개`;
+  const visible=sources.filter(s=>matchesSourceFilter(project,s.source_id,filter));
   $("sourceList").replaceChildren(
-    ...(project?.sources || []).map((s) => {
+    ...visible.map((s) => {
       const b = document.createElement("button");
       b.className = "source" + (s.source_id === sourceId ? " active" : "");
+      const status=sourceLabelingStatus(project,s.source_id);
+      b.dataset.status=status.key;
       b.textContent =
         s.original_path?.split("/").pop() ||
         s.path.split("/").pop() ||
@@ -206,8 +306,11 @@ function render() {
       const sm = document.createElement("small");
       sm.textContent = `${s.fps} FPS · ${s.episodes.length} episode`;
       b.append(sm);
+      const badge=document.createElement('span');badge.className='source-status source-status--'+status.key;
+      badge.textContent=status.text;b.append(badge);
       b.onclick = action(async () => {
         sourceId = s.source_id;
+        cursorBoundary=null;
         episodeId = s.episodes[0].episode_id;
         frame = resumeFrame();
         selected = null;
@@ -218,9 +321,29 @@ function render() {
       return b;
     }),
   );
+  if (!visible.length) $('sourceList').textContent=sources.length?'해당 상태의 원본이 없습니다.':'원본을 불러오세요.';
+  $('sourceCompleted').checked=project?.source_completed?.[sourceId]===true;
+  $('sourceCompleted').disabled=!source()||!sourceCompletionReady;
+  $('sourceCompleted').title=sourceCompletionReady?'라벨을 수정하면 완료 표시가 자동 해제됩니다.':'추출 작업이 끝난 뒤 에디터를 다시 열면 완료 표시를 저장할 수 있습니다.';
+  $('sourceNotRequired').checked=project?.source_not_required?.[sourceId]===true;
+  $('sourceNotRequired').disabled=!source()||!sourceNotRequiredReady;
+  $('sourceNotRequired').title=sourceNotRequiredReady?'라벨과 원본은 보존하며 Export에서 제외합니다. 해제하면 다시 Export할 수 있습니다.':'에디터를 다시 실행하면 라벨링 불필요 표시를 저장할 수 있습니다.';
+}
+function render() {
+  ++drawToken;
+  updatePresetSelection();
+  renderTrackControls();
+  $("saveState").textContent = project
+    ? `${project.name} · 저장됨 r${project.revision}`
+    : "프로젝트를 열어주세요";
+  $("empty").hidden = !!source();
+  $("editor").hidden = !source();
+  renderSourceList();
   $("undo").disabled = !undo.length;
   $("redo").disabled = !redo.length;
   $("taskReuse").replaceChildren(...taskOptions());
+  activityPanel.sourceChanged();
+  renderExportSource();
   if (!source()) return;
   $("sourceTitle").textContent = (source().original_path || source().path)
     .split("/")
@@ -240,6 +363,9 @@ function render() {
   $("startFrame").max = episode().num_frames - 1;
   $("endFrame").max = episode().num_frames;
   $("timeline").style.width = 100 * Number($("zoom").value) + "%";
+  for (const image of $("cameras").querySelectorAll("img")) {
+    if (image.dataset.url) URL.revokeObjectURL(image.dataset.url);
+  }
   $("cameras").replaceChildren(
     ...source().cameras.map((camera) => {
       const el = document.createElement("div");
@@ -248,14 +374,28 @@ function render() {
       const im = document.createElement("img");
       im.alt = camera;
       const caption = document.createElement("figcaption");
-      caption.textContent = camera;
+      const rotationKey=`editorCameraRotation:${source().fingerprint?.value || source().path}:${camera}`;
+      let rotation=localStorage.getItem(rotationKey);
+      rotation=rotation===null?(camera==='observation.images.right_wrist'?180:0):Number(rotation)===180?180:0;
+      const rotate=document.createElement('button');
+      rotate.setAttribute('aria-label',camera+' 보기 180° 회전');
+      rotate.title='라벨링 화면만 회전합니다. 원본과 Export 영상은 유지됩니다.';
+      const applyRotation=()=>{
+        im.style.transform=`rotate(${rotation}deg)`;
+        rotate.textContent=rotation?'원본 보기':'180° 보기';
+        rotate.setAttribute('aria-pressed',String(rotation===180));
+        caption.textContent=camera+(rotation?' · 보기 180°':'');
+      };
+      rotate.onclick=()=>{rotation=rotation?0:180;localStorage.setItem(rotationKey,String(rotation));applyRotation();};
+      applyRotation();
       const b = document.createElement("button");
       b.textContent = "확대";
       b.onclick = () => {
         if (document.fullscreenElement) document.exitFullscreen();
         else el.requestFullscreen();
       };
-      el.append(im, caption, b);
+      const tools=document.createElement('div');tools.className='camera-tools';tools.append(rotate,b);
+      el.append(im, caption, tools);
       return el;
     }),
   );
@@ -266,6 +406,7 @@ function render() {
       frame,
       episode().num_frames,
       source().fps,
+      cursorBoundary,
     );
     $("startFrame").value = draft.start;
     $("endFrame").value = draft.end;
@@ -275,6 +416,7 @@ function render() {
   renderClock();
 }
 function renderTimeline() {
+  closeClipMenu();
   if (!episode()) return;
   const n = episode().num_frames;
   $("ticks").replaceChildren(
@@ -302,6 +444,7 @@ function renderTimeline() {
         el.append(h);
       }
       el.onpointerdown = (e) => clipPointer(e, c, el,layer);
+      el.oncontextmenu = (e) => openClipMenu(e,c,layer);
       return el;
     }),
   );
@@ -341,6 +484,7 @@ function renderClips() {
         row.append(badge);
       }
       row.onclick = () => selectClip(c.id);
+      row.oncontextmenu = (e) => openClipMenu(e,c,annotationTrack);
       if(annotationTrack==='goal') {
         const wrap=document.createElement('div'),children=document.createElement('div');children.className='goal-children';
         for(const step of clips('step').filter(s=>s.start_frame<c.end_frame && c.start_frame<s.end_frame)) {
@@ -360,6 +504,40 @@ function renderClips() {
     row.textContent=`${time(x.start_frame)}–${time(x.end_frame)} `;b.textContent='제외 해제';
     b.onclick=action(async()=>{await edit('restore_exclusion',{exclusion_id:x.id});toast('데이터 제외를 해제했습니다. 제거된 Step 라벨은 자동 복원하지 않습니다.');});row.append(b);return row;
   }));
+}
+function closeClipMenu() {
+  clipMenuTarget=null;
+  $('clipContextMenu').hidden=true;
+  document.querySelectorAll('.context-target').forEach(el=>el.classList.remove('context-target'));
+}
+function openClipMenu(event,clip,track) {
+  event.preventDefault();event.stopPropagation();
+  closeClipMenu();
+  playing=false;renderClock();
+  clipMenuTarget={projectId:project.project_id,sourceId,episodeId,track,clipId:clip.id};
+  const menu=$('clipContextMenu');
+  $('clipContextTitle').textContent=`${track==='goal'?'Goal':'Step'} · ${time(clip.start_frame)}–${time(clip.end_frame)}`;
+  event.currentTarget.classList.add('context-target');
+  menu.hidden=false;
+  const box=menu.getBoundingClientRect();
+  menu.style.left=Math.max(8,Math.min(event.clientX,window.innerWidth-box.width-8))+'px';
+  menu.style.top=Math.max(8,Math.min(event.clientY,window.innerHeight-box.height-8))+'px';
+  $('deleteContextClip').focus({preventScroll:true});
+}
+async function deleteContextClip() {
+  const target=clipMenuTarget;
+  if (!target) return;
+  if (pendingRequests || exportBusy) throw Error('진행 중인 저장·설정 확인이 끝난 뒤 삭제하세요.');
+  closeClipMenu();
+  if (project?.project_id!==target.projectId || sourceId!==target.sourceId || episodeId!==target.episodeId)
+    throw Error('원본이 바뀌었습니다. 삭제할 클립을 다시 우클릭하세요.');
+  const wasSelected=annotationTrack===target.track && selected===target.clipId;
+  await edit('remove_clip',{clip_id:target.clipId,track:target.track});
+  if (wasSelected && selected===null && annotationTrack===target.track && sourceId===target.sourceId && episodeId===target.episodeId) {
+    deselect();$('task').value='';beginAutomaticRange();renderSelection();updatePresetSelection();
+  }
+  $('undo').focus({preventScroll:true});
+  toast(`${target.track==='goal'?'Goal':'Step'} 클립을 삭제했습니다. 되돌리기 또는 Ctrl+Z로 복구할 수 있습니다.`);
 }
 function selectClip(id) {
   const c = clips().find((x) => x.id === id);
@@ -389,13 +567,13 @@ function beginAutomaticRange(start = null) {
   if (!episode()) return;
   autoRangeEnd=true;
   const draft=start===null
-    ? defaultTaskRange(clips(),frame,episode().num_frames,source().fps)
-    : nextTaskRange(start,frame,episode().num_frames);
+    ? defaultTaskRange(clips(),frame,episode().num_frames,source().fps,cursorBoundary)
+    : nextTaskRange(start,frame,episode().num_frames,cursorBoundary);
   $('startFrame').value=draft.start;$('endFrame').value=draft.end;
 }
 function syncAutomaticEnd() {
   if (autoRangeEnd && !selected && episode())
-    $('endFrame').value=nextTaskRange(Number($('startFrame').value),frame,episode().num_frames).end;
+    $('endFrame').value=nextTaskRange(Number($('startFrame').value),frame,episode().num_frames,cursorBoundary).end;
 }
 function renderSelection() {
   if (!episode()) return;
@@ -422,7 +600,8 @@ function renderClock() {
   $("seek").value = frame;
   $("clock").textContent =
     `${time(frame)} · frame ${frame}/${episode().num_frames - 1}`;
-  $("playhead").style.left = (frame / episode().num_frames) * 100 + "%";
+  $("playhead").style.left = ((cursorBoundary ?? frame) / episode().num_frames) * 100 + "%";
+  showSnap(cursorBoundary===null ? null : {frame:cursorBoundary,snapped:true});
   $("play").textContent = playing ? "Ⅱ 정지" : "▶ 재생";
   dataInspector.cursorChanged();
 }
@@ -452,14 +631,24 @@ async function fetchFrame() {
           const previous = im.dataset.url;
           im.src = url;
           im.dataset.url = url;
+          try {
+            await im.decode();
+          } finally {
+            if (previous) URL.revokeObjectURL(previous);
+          }
+          im.dataset.frame=String(f);
           el.classList.remove("missing");
-          if (previous) URL.revokeObjectURL(previous);
         } catch (err) {
           el.classList.add("missing");
           el.title = err.message;
         }
       }),
     );
+    if(token===drawToken && sourceId===s && episodeId===e) {
+      const context={project_id:pid,source:source(),episode_id:e};
+      if([...$('cameras').children].some(el=>el.classList.contains('missing'))) activityPanel.unavailable(context);
+      else activityPanel.presented(context,f);
+    }
   } finally {
     previewBusy = false;
     if (
@@ -469,8 +658,9 @@ async function fetchFrame() {
       fetchFrame();
   }
 }
-function seek(value) {
+function seek(value, boundary=null) {
   if (!episode()) return;
+  cursorBoundary=boundary;
   frame = Math.max(0, Math.min(episode().num_frames - 1, Math.round(value)));
   if (playing) {
     lastTick = performance.now();
@@ -482,6 +672,7 @@ function seek(value) {
 function togglePlay() {
   if (!episode()) return;
   playing = !playing;
+  if(playing) cursorBoundary=null;
   lastTick = performance.now();
   playOrigin = frame;
   renderClock();
@@ -514,6 +705,7 @@ function tick(now) {
     next = episode().num_frames - 1;
   }
   if (next !== frame) {
+    cursorBoundary=null;
     frame = next;
     renderClock();
     fetchFrame();
@@ -540,7 +732,7 @@ async function edit(operation, extra) {
   redo = [];
   const selection=clips().find((c) => c.id === selected || c.merged_clip_ids?.includes(selected));
   selected=selection?.id || null;
-  if(selection) {
+  if(selection && !['source_completion','source_not_required','remove_clip'].includes(operation)) {
     // A neighboring same-task edit can merge both sides. Never leave the old
     // fragment bounds in the inspector: a second edit would otherwise trim it.
     $('startFrame').value=selection.start_frame;$('endFrame').value=selection.end_frame;
@@ -550,6 +742,7 @@ async function edit(operation, extra) {
   }
   renderTimeline();
   renderClips();
+  renderSourceList();
   $("taskReuse").replaceChildren(...taskOptions());
   $("saveState").textContent = `${project.name} · 저장됨 r${project.revision}`;
   $("undo").disabled = false;
@@ -620,11 +813,12 @@ async function history(backward) {
   const from = backward ? undo : redo,
     to = backward ? redo : undo;
   if (!from.length) return;
+  if (!revisionHistoryRestore) throw Error('되돌리기 수정은 추출 작업이 끝난 뒤 에디터를 다시 열면 적용됩니다. 현재 제외 구간은 제외 목록의 ‘제외 해제’를 사용하세요.');
   const desired = copy(from[from.length - 1]),
     before = copy(project);
   project = await api(
     `/api/projects/${project.project_id}`,
-    { project: desired, expected_revision: project.revision },
+    { restore_revision: desired.revision, expected_revision: project.revision },
     "PUT",
   );
   from.pop();
@@ -644,14 +838,15 @@ function pos(e) {
   );
 }
 $("timeline").onpointerdown = (e) => {
+  if (e.button!==undefined && e.button!==0) return;
   if (!episode() || e.target.closest(".clip")) return;
   e.preventDefault();
   const layer=e.target.closest('[data-track]')?.dataset.track;
   if(layer) setAnnotationTrack(layer);
-  const start = dragPoint(e).frame;
+  const origin = dragPoint(e),start=origin.frame;
   playing = false;
   deselect();
-  seek(start);
+  seek(start,origin.snapped?start:null);
   let moved=false;
   const move = (m) => {
     if(!moved && Math.abs(m.clientX-e.clientX)<3)return;
@@ -662,13 +857,13 @@ $("timeline").onpointerdown = (e) => {
     $("endFrame").value = draft.end;
     showSnap(point);
     renderSelection();
-    seek(draft.preview);
+    seek(draft.preview,point.snapped?point.frame:null);
   };
   const up = () => {
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", up);
     window.removeEventListener("pointercancel", up);
-    showSnap(null);
+    showSnap(cursorBoundary===null?null:{frame:cursorBoundary,snapped:true});
   };
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", up);
@@ -684,6 +879,10 @@ function dragBoundaries(excludedClipId = null) {
     if (clip.id !== excludedClipId)
       boundaries.push(clip.start_frame, clip.end_frame);
   }
+  for (const exclusion of project.exclusions || []) {
+    if (exclusion.source_id===sourceId && (exclusion.episode_id??0)===episodeId)
+      boundaries.push(exclusion.start_frame, exclusion.end_frame);
+  }
   return boundaries;
 }
 function showSnap(point) {
@@ -697,6 +896,7 @@ function showSnap(point) {
       (point.frame / episode().num_frames) * 100 + "%";
 }
 function clipPointer(e, c, el,layer) {
+  if (e.button!==undefined && e.button!==0) return;
   e.stopPropagation();
   e.preventDefault();
   playing = false;
@@ -724,13 +924,13 @@ function clipPointer(e, c, el,layer) {
       snapped: point.snapped && point.frame === actual,
     });
     renderSelection();
-    seek(edge === "end" ? b - 1 : a);
+    seek(edge === "end" ? b - 1 : a,point.snapped?actual:null);
   };
   const up = async (event) => {
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", up);
     window.removeEventListener("pointercancel", up);
-    showSnap(null);
+    showSnap(cursorBoundary===null?null:{frame:cursorBoundary,snapped:true});
     if (event.type === "pointercancel") {
       selectClip(c.id);
       return;
@@ -761,28 +961,82 @@ async function startImport(demo) {
   toast("가져오기 시작. 아래 작업 목록에서 완료 후 프로젝트에 추가하세요.");
   await pollJobs();
 }
+function jobDate(seconds) {
+  if (!Number.isFinite(Number(seconds)) || Number(seconds)<=0) return '시각 미기록';
+  const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(new Date(Number(seconds)*1000));
+  const values=Object.fromEntries(parts.map(part=>[part.type,part.value]));
+  return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second} KST`;
+}
+function jobOrder(job) {return Number(job.result?.published_at)||Number(job.created)||0;}
 async function pollJobs() {
   try {
     const jobs = (await api("/api/jobs")).filter(
-      (j) => !j.project_id || j.project_id === project?.project_id,
-    );
-    $("jobList").replaceChildren(
-      ...jobs.map((j) => {
+      (j) => !j.project_id || j.project_id === project?.project_id
+        || (j.kind === 'export' && j.status === 'completed'),
+    ).sort((a,b)=>jobOrder(b)-jobOrder(a));
+    const completedExports=jobs.filter(j=>j.kind==='export' && j.status==='completed' && j.result?.path);
+    const latestHubPlan=jobs.find(j=>j.kind==='hub-plan' && j.status==='completed');
+    const latestHubUpload=jobs.find(j=>j.kind==='hub-upload' && j.status==='completed');
+    const latestByPath=new Map();
+    for (const job of completedExports)
+      if (!latestByPath.has(job.result.path)) latestByPath.set(job.result.path,job.id);
+    const projectNames = new Map(Array.from($("projectSelect").options,
+      (option) => [option.value, option.textContent]));
+    const cards = jobs.map((j) => {
+        const exported=j.kind==='export' && j.status==='completed';
+        const currentResult=exported && latestByPath.get(j.result?.path)===j.id;
         const el = document.createElement("div");
-        el.className = "job";
+        el.className = "job"+(exported?(currentResult?' current-export':' previous-export'):'');
         const title = document.createElement("div");
-        title.textContent = `${j.kind} · ${j.status} · ${j.message || ""}`;
+        title.className='job-title';
+        if (exported) {
+          title.textContent = `${j.id===completedExports[0]?.id?'가장 최근 Export · ':''}${currentResult?'현재 폴더 결과':'이전 Export 기록'} · ${j.result?.dataset_name || j.result?.path?.split('/').pop() || ''}`;
+        } else if (['hub-plan','hub-upload'].includes(j.kind)) {
+          const latest=j.kind==='hub-plan'?latestHubPlan:latestHubUpload;
+          const kind=j.kind==='hub-plan'?'업로드 미리보기':'실제 Hub 업로드';
+          const status={queued:'대기 중',running:'진행 중',completed:'완료',cancelled:'취소됨',failed:'실패'}[j.status] || j.status;
+          title.textContent=`${j.id===latest?.id?'가장 최근 · ':''}${kind} · ${status}`+
+            `${j.result?.repo_id?` · ${j.result.repo_id}`:''} · ${j.message || ''}`;
+        } else {
+          title.textContent=`${j.kind} · ${j.status} · ${j.message || ''}`;
+        }
         const bar = document.createElement("progress");
         bar.max = 1;
         bar.value = j.progress || 0;
         el.append(title, bar);
+        const dates=document.createElement('p');dates.className='muted';
+        dates.textContent=`시작 ${jobDate(j.created)}`+(j.result?.published_at?` · 게시 ${jobDate(j.result.published_at)}`:'');
+        el.append(dates);
+        if (['export', 'export-preview'].includes(j.kind)) {
+          const owner = document.createElement('p');
+          owner.className = 'muted';
+          owner.textContent = `프로젝트: ${j.result?.project_name || projectNames.get(j.project_id) || j.project_id || '정보 없음'}`;
+          el.append(owner);
+        }
+        if (exported) {
+          const names=document.createElement('p');names.className='job-sources';
+          names.textContent=`원본: ${j.result?.source_names?.join(', ') || '이전 작업의 원본 정보 미기록'}`;
+          el.append(names);
+          const addedFrames=j.result?.frames_added ?? j.checkpoint?.completed_frames;
+          const addedEpisodes=j.result?.episodes_added ?? j.checkpoint?.completed_episodes;
+          const counts=document.createElement('p');counts.className='job-summary';
+          counts.textContent=`이번 ${j.result?.mode==='new'?'생성':'추가'}: ${addedEpisodes??'?'} episodes · ${addedFrames?.toLocaleString()??'?'}프레임`+
+            ` → 완료 후 합계: ${j.result?.episodes??'?'} episodes · ${j.result?.frames?.toLocaleString()??'?'}프레임`;
+          el.append(counts);
+          if (!currentResult) {
+            const note=document.createElement('p');note.className='muted';
+            note.textContent='과거 작업 기록입니다. 아래 공통 경로는 이후 Export로 갱신되어 현재 최신 결과를 담고 있습니다.';
+            el.append(note);
+          }
+        }
         if (j.kind === 'export-preview' && j.status === 'completed') {
           const open=document.createElement('button');
           open.textContent='이 데이터 미리보기 열기';
           open.onclick=action(()=>dataInspector.loadPreview(j.id));
           el.append(open);
         }
-        if (j.checkpoint) {
+        if (j.checkpoint && !exported) {
           const checkpoint = document.createElement('p');
           checkpoint.textContent = `재사용 가능한 완료 episode: ${j.checkpoint.completed_episodes}개 · ${j.checkpoint.completed_frames} frames`;
           el.append(checkpoint);
@@ -842,6 +1096,7 @@ async function pollJobs() {
             sourceId = imported[0].source_id;
             episodeId = source().episodes[0].episode_id;
             frame = 0;
+            cursorBoundary=null;
             selected = null;
             render();
             await fetchFrame();
@@ -884,7 +1139,7 @@ async function pollJobs() {
               el.append(detail);
             }
             const use = document.createElement("button");
-            use.textContent = "이 결과를 Hub 업로드 경로로 사용";
+            use.textContent = currentResult ? "이 결과를 Hub 업로드 경로로 사용" : "이 경로의 최신 결과를 Hub 업로드 경로로 사용";
             use.onclick = () => {
               $("hubPath").value = j.result.path;
               $("hubPath").focus();
@@ -961,22 +1216,65 @@ async function pollJobs() {
         log.target = "_blank";
         log.textContent = "로그";
         el.append(log);
-        return el;
-      }),
-    );
-    if (!jobs.length) $("jobList").textContent = "작업 없음";
+        return {job: j, element: el};
+      });
+    for (const group of $("jobList").querySelectorAll('[data-job-group]')) {
+      const key = group.dataset.jobGroup;
+      const items = cards.filter(({job}) => {
+        const kind = job.kind;
+        const category = ['demo', 'import', 'import-batch', 'ssh-import'].includes(kind) ? 'import'
+          : kind === 'export' ? 'export'
+          : kind === 'export-preview' ? 'preview'
+          : ['hub-plan', 'hub-upload'].includes(kind) ? 'hub' : 'other';
+        return category === key;
+      });
+      const current = items.filter(({job}) => job.status !== 'completed' && (key!=='hub' || job.status!=='cancelled'));
+      const completed = items.filter(({job}) => job.status === 'completed');
+      group.hidden = ['hub', 'other'].includes(key) && !items.length;
+      group.querySelector('.job-current').replaceChildren(
+        ...(current.length ? current.map(({element}) => element) : ['진행 중인 작업 없음']),
+      );
+      if (key==='hub') {
+        const completedSections=[];
+        for (const [selector,label,entries] of [
+          ['.job-hub-plans','업로드 미리보기 완료 · 전송 안 함',completed.filter(({job})=>job.kind==='hub-plan')],
+          ['.job-hub-uploads','실제 Hub 업로드 완료',completed.filter(({job})=>job.kind==='hub-upload')],
+          ['.job-hub-cancelled','취소된 이전 작업',items.filter(({job})=>job.status==='cancelled')],
+        ]) {
+          const history=group.querySelector(selector);
+          history.hidden=!entries.length;
+          history.querySelector('summary').textContent=`${label} ${entries.length}개`;
+          history.querySelector('.job-history').replaceChildren(...entries.map(({element})=>element));
+          if (selector!=='.job-hub-cancelled')
+            completedSections.push({history,order:entries.length?jobOrder(entries[0].job):-1});
+        }
+        group.querySelector('.job-hub-results').replaceChildren(
+          ...completedSections.sort((a,b)=>b.order-a.order).map(({history})=>history),
+        );
+        continue;
+      }
+      // Keep the details element itself so polling preserves the user's toggle.
+      const history = group.querySelector('.job-completed');
+      history.hidden = !completed.length;
+      const label = key === 'export' ? '실제 Export 완료 · 전체 프로젝트'
+        : key === 'preview' ? '미리보기 완료 · 현재 프로젝트' : '완료된 작업';
+      history.querySelector('summary').textContent = `${label} ${completed.length}개`;
+      history.querySelector('.job-history').replaceChildren(...completed.map(({element}) => element));
+    }
     dataInspector.observeJobs(jobs);
   } catch (e) {
     console.warn(e);
   }
 }
 const reviewQuality = setupQualityReview();
+const activityPanel=setupActivity({api,getContext:()=>({project_id:project?.project_id,source:source(),episode_id:episodeId})});
 const dataInspector = setupDataInspector({
   api,
   getContext: () => ({project_id:project?.project_id,source:source(),episode:episodeId,frame,playing}),
   getProject: () => project,
   getSchema: () => $("exportSchema").value,
   getAnnotationTrack: () => $('exportAnnotationTrack').value,
+  getExportSourceId: exportSourceId,
   notify: toast,
   preparePreview: async () => {
     if (!project) throw Error("프로젝트를 먼저 여세요.");
@@ -988,16 +1286,33 @@ const dataInspector = setupDataInspector({
       body.quality=approval;
       plan=await api(`/api/projects/${projectId}/preview-plan`,body);
     }
-    if (project.project_id!==projectId) throw Error("프로젝트가 바뀌었습니다. 다시 계산하세요.");
+    if (project.project_id!==projectId || (body.source_id||null)!==exportSourceId())
+      throw Error("Export 대상이 바뀌었습니다. 다시 계산하세요.");
     const job=await api(`/api/projects/${projectId}/previews`,{...body,expected_revision:plan.project_revision});
     await pollJobs();
     return job.id;
   },
 });
 $("previewExport").onclick=()=>dataInspector.calculate();
+function exportSourceId() {
+  return $('exportMode').value!=='replace' && $('exportScope').value==='source' ? sourceId : null;
+}
+function renderExportSource() {
+  const mode=$('exportMode').value;
+  $('exportSourceName').textContent=mode==='replace'
+    ? '수정 대상: 현재 프로젝트의 라벨 전체 (선택한 원본만으로 교체하지 않습니다).'
+    : $('exportScope').value==='project'
+      ? 'Export 대상: 프로젝트 전체의 라벨 구간 (여러 원본 일괄 처리).'
+      : source() ? `Export 대상: ${(source().original_path||source().path).split('/').pop()} · 이 원본의 모든 episode 라벨 구간`
+        : '왼쪽에서 Export할 원본을 선택하세요.';
+}
 function exportBody() {
   if(!annotationReady) throw Error('에디터 서버를 재시작하고 새로고침한 후 Export하세요.');
+  if(!sourceExportReady) throw Error('선택 원본 Export·중복 방지를 적용하려면 에디터를 껐다 켜세요. 저장된 라벨은 유지됩니다.');
+  if($('exportMode').value!=='replace' && $('exportScope').value==='source' && !source())
+    throw Error('왼쪽에서 Export할 원본을 선택하세요.');
   return {mode:$("exportMode").value,schema:$("exportSchema").value,
+    source_id:exportSourceId()||undefined,
     annotation_track:$('exportAnnotationTrack').value,
     repo_name:$("repoName").value.trim(),target:$("exportPath").value.trim()||undefined,
     confirm_existing:$("confirmExisting").checked,...dataInspector.previewOptions()};
@@ -1028,19 +1343,21 @@ async function prepareExport() {
   if (p.quality?.issues.length && !p.quality.ready) {
     const approval = await reviewQuality(p.quality);
     if (!approval) return;
-    if (project.project_id !== projectId) throw Error("프로젝트가 바뀌었습니다. 다시 Export하세요.");
+    if (project.project_id !== projectId || (body.source_id||null)!==exportSourceId())
+      throw Error("Export 대상이 바뀌었습니다. 다시 Export하세요.");
     body.quality = approval;
     p = await api(`/api/projects/${projectId}/export-plan`, body);
   }
   if (!p.kept_frames) throw Error("먼저 task가 있는 clip을 만드세요.");
-  if (project.project_id !== projectId) throw Error("프로젝트가 바뀌었습니다. 다시 Export하세요.");
+  if (project.project_id !== projectId || (body.source_id||null)!==exportSourceId())
+    throw Error("Export 대상이 바뀌었습니다. 다시 Export하세요.");
   const shortExportWarning=p.short_annotations?.length
     ? `주의: 0.5초 미만 annotation 구간 ${p.short_annotations.length}개 (1프레임 ${p.short_annotations.filter(c=>c.frames===1).length}개). 의도한 범위인지 확인하세요. 자동 연장·Export 차단은 하지 않습니다.\n` : '';
   if(shortExportWarning) toast(shortExportWarning);
-  const confirmExport=message=>confirm(shortExportWarning+message);
+  const confirmExport=message=>confirm(`Export 대상: ${p.source_names.join(', ')}\n이미 저장된 원본 프레임 ${p.skipped_duplicate_frames}개 건너뜀\n\n`+shortExportWarning+message);
   if (
     !confirmExport(
-      `${mode === "new" ? "새 생성" : mode === "append" ? "기존에 추가" : "기존 수정"}: ${p.repo_id}\n${p.target}\n\nInstruction 트랙: ${p.annotation_track==='goal'?'Goal · 전체 작업':'Step · 세부 동작'}\n출력 구성: ${p.schema}\n${p.schema !== 'legacy' ? '미기록 목표·상태는 validity=0으로 저장합니다. 학습 mask 연결이 필요합니다.\n랙 보정/다중 태그/TF가 없으면 랙 상대 위치도 미기록 처리됩니다.\n' : ''}현재 선택 ${p.kept_frames} frames (${(p.kept_frames / p.fps).toFixed(2)}초)\n미지정·승인된 누락 제외 ${p.dropped_frames} frames\n최종 ${p.output_frames} frames / ${p.output_episodes} episodes\n누락 구간 처리 ${p.quality?.issues.length || 0}건 (선택 내역 기록)\n${mode === "append" ? `기존 ${p.existing_frames} frames는 유지합니다. 중복 구간은 자동 제거하지 않습니다.\n` : ""}${mode !== "new" ? "기존 폴더는 복구본으로 보존합니다.\n" : ""}\n저장본 r${p.project_revision}으로 진행할까요?`,
+      `${mode === "new" ? "새 생성" : mode === "append" ? "기존에 추가" : "기존 수정"}: ${p.repo_id}\n${p.target}\n\nInstruction 트랙: ${p.annotation_track==='goal'?'Goal · 전체 작업':'Step · 세부 동작'}\n출력 구성: ${p.schema}\n${p.schema !== 'legacy' ? '미기록 목표·상태는 validity=0으로 저장합니다. 학습 mask 연결이 필요합니다.\n랙 보정/다중 태그/TF가 없으면 랙 상대 위치도 미기록 처리됩니다.\n' : ''}현재 선택 ${p.kept_frames} frames (${(p.kept_frames / p.fps).toFixed(2)}초)\n미지정·승인된 누락 제외 ${p.dropped_frames} frames\n최종 ${p.output_frames} frames / ${p.output_episodes} episodes\n누락 구간 처리 ${p.quality?.issues.length || 0}건 (선택 내역 기록)\n${mode === "append" ? `기존 ${p.existing_frames} frames는 유지합니다.\n` : ""}${mode !== "new" ? "기존 폴더는 복구본으로 보존합니다.\n" : ""}\n저장본 r${p.project_revision}으로 진행할까요?`,
     )
   )
     return;
@@ -1056,16 +1373,19 @@ function updateExportMode() {
   $("repoNameLabel").hidden = mode !== "new";
   $("confirmExistingLabel").hidden = mode === "new";
   $("confirmExisting").checked = false;
+  $('exportScopeLabel').hidden=mode==='replace';
+  renderExportSource();
   $("exportPathLabel").textContent =
     mode === "new" ? "새 출력 폴더 (선택)" : "기존 LeRobot dataset 폴더 (필수)";
   $("exportHint").textContent =
     mode === "new"
-      ? "라벨 구간만 새 dataset으로 저장합니다. Hub에는 업로드하지 않습니다."
+      ? "위에서 선택한 대상의 라벨 구간만 새 dataset으로 저장합니다. Hub에는 업로드하지 않습니다."
       : mode === "append"
-        ? "기존 모든 episode를 유지하고 현재 라벨 구간을 추가합니다. 복구본을 보존하며, 중복을 자동 제거하지 않습니다."
+        ? "기존 episode를 유지하고 선택한 대상의 새 구간만 추가합니다. 이미 저장된 원본 프레임은 건너뛰고 복구본을 보존합니다."
         : "수정할 dataset을 원본으로 불러온 뒤 사용하세요. 현재 프로젝트의 라벨 구간만 남긴 결과로 교체하고, 기존 폴더는 복구본으로 보존합니다.";
 }
 $("exportMode").onchange = updateExportMode;
+$('exportScope').onchange=renderExportSource;
 $("exportPath").addEventListener("input", () => {
   $("confirmExisting").checked = false;
 });
@@ -1132,6 +1452,7 @@ $("projectSelect").onchange = action(() =>
 $("episodeSelect").onchange = action(async () => {
   episodeId = Number($("episodeSelect").value);
   frame = resumeFrame();
+  cursorBoundary=null;
   selected = null;
   playing = false;
   render();
@@ -1200,10 +1521,20 @@ const picker = setupFilePicker({
 $("browseLocal").onclick = action(() => picker.open("local"));
 $("browseSSH").onclick = action(() => picker.open("ssh"));
 $("demo").onclick = action(() => startImport(true));
-$("prev").onclick = () => seek(frame - 1);
-$("next").onclick = () => seek(frame + 1);
+$("prev").onclick = () => seek((cursorBoundary ?? frame) - 1);
+$("next").onclick = () => seek((cursorBoundary ?? frame) + 1);
 $("play").onclick = togglePlay;
-$("seek").oninput = () => seek(Number($("seek").value));
+$("seek").onpointerdown=e=>{seekDragging=true;seekAlt=e.altKey;};
+$("seek").onpointermove=e=>{if(seekDragging) seekAlt=e.altKey;};
+window.addEventListener('pointerup',()=>{seekDragging=false;});
+window.addEventListener('pointercancel',()=>{seekDragging=false;});
+$("seek").oninput = () => {
+  const value=Number($("seek").value);
+  if(!seekDragging) {seek(value);return;}
+  const point=snapBoundary(value,dragBoundaries(),
+    $('seek').getBoundingClientRect().width/episode().num_frames,seekAlt);
+  seek(point.frame,point.snapped?point.frame:null);
+};
 $("speed").onchange = () => {
   lastTick = performance.now();
   playOrigin = frame;
@@ -1212,13 +1543,13 @@ $("zoom").oninput = () => {
   $("timeline").style.width = Number($("zoom").value) * 100 + "%";
 };
 $("markIn").onclick = () => {
-  $("startFrame").value = frame;
+  $("startFrame").value = cursorBoundary ?? frame;
   syncAutomaticEnd();
   renderSelection();
 };
 $("markOut").onclick = () => {
   autoRangeEnd=false;
-  $("endFrame").value = frame + 1;
+  $("endFrame").value = cursorBoundary ?? frame + 1;
   renderSelection();
 };
 $("startFrame").oninput = () => {syncAutomaticEnd();renderSelection();};
@@ -1250,14 +1581,25 @@ $("exclude").onclick = action(async () => {
 });
 $('removeAnnotation').onclick=action(async()=>{await edit('remove_annotation',currentRange());deselect();});
 $("split").onclick = action(async () => {
+  const boundary=cursorBoundary ?? frame;
   const c =
     clips().find((c) => c.id === selected) ||
-    clips().find((c) => c.start_frame < frame && frame < c.end_frame);
-  if (!c) throw Error("분할할 clip 내부로 이동하세요.");
-  await edit("split", { clip_id: c.id, frame });
+    clips().find((c) => c.start_frame < boundary && boundary < c.end_frame);
+  if (!c || !(c.start_frame < boundary && boundary < c.end_frame))
+    throw Error("분할할 clip 내부로 이동하세요. 경계 근처는 Alt를 눌러 자유롭게 이동할 수 있습니다.");
+  await edit("split", { clip_id: c.id, frame:boundary });
 });
 $("undo").onclick = action(() => history(true));
 $("redo").onclick = action(() => history(false));
+$('sourceStatusFilter').onchange=renderSourceList;
+$('sourceCompleted').onchange=action(async()=>{
+  try {await edit('source_completion',{source_id:sourceId,completed:$('sourceCompleted').checked});}
+  finally {renderSourceList();}
+});
+$('sourceNotRequired').onchange=action(async()=>{
+  try {await edit('source_not_required',{source_id:sourceId,not_required:$('sourceNotRequired').checked});}
+  finally {renderSourceList();}
+});
 $("export").onclick = action(exportNow);
 $("hubPlan").onclick = action(async () => {
   if (!$("hubPath").value.trim() || !$("hubRepo").value.trim())
@@ -1279,21 +1621,35 @@ $("task").addEventListener("input", updatePresetSelection);
 $("snapshot").onclick = () => {
   if (project) window.location = `/api/projects/${project.project_id}/snapshot`;
 };
+window.editorRefresh=refreshEditor;
+$("refresh").onclick=refreshEditor;
+$('deleteContextClip').onclick=action(deleteContextClip);
+document.addEventListener('pointerdown',e=>{
+  if (!$('clipContextMenu').hidden && !$('clipContextMenu').contains(e.target)) closeClipMenu();
+});
+document.addEventListener('scroll',closeClipMenu,true);
+window.addEventListener('resize',closeClipMenu);
 $("loadSignals").onclick = action(loadSignals);
 $("signalKey").onchange = () => { signalDimensions(); drawSignals(); };
 $("signalDimension").onchange = drawSignals;
 document.addEventListener("keydown", (e) => {
+  if (e.key==='F5' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase()==='r')) {
+    e.preventDefault();refreshEditor();return;
+  }
+  if (!$('clipContextMenu').hidden) {
+    if (e.key==='Escape') {e.preventDefault();closeClipMenu();}
+    return;
+  }
   if ($("filePicker").open || $("qualityReview").open) return;
-  if (e.target.matches("input,textarea,select") || !episode()) return;
+  const arrowDirection=e.key==='ArrowLeft' ? -1 : e.key==='ArrowRight' ? 1 : 0;
+  if ((e.target.matches("input,textarea,select") && !(arrowDirection && e.target===$('seek'))) || !episode()) return;
   if (e.code === "Space") {
     e.preventDefault();
     togglePlay();
-  } else if (e.key === "ArrowLeft") {
+  } else if (arrowDirection) {
     e.preventDefault();
-    seek(frame - 1);
-  } else if (e.key === "ArrowRight") {
-    e.preventDefault();
-    seek(frame + 1);
+    const step=e.shiftKey ? 1 : Math.max(1,Math.round(source().fps*0.5));
+    seek((cursorBoundary ?? frame) + arrowDirection*step);
   } else if (e.key.toLowerCase() === "i") $("markIn").click();
   else if (e.key.toLowerCase() === "o") $("markOut").click();
   else if (e.key.toLowerCase() === "s" && !e.ctrlKey && !e.metaKey)
@@ -1305,8 +1661,12 @@ document.addEventListener("keydown", (e) => {
 });
 action(async () => {
   const cfg = await api("/api/config");
+  revisionHistoryRestore=cfg.revision_history_restore===true;
+  sourceCompletionReady=cfg.source_completion===true;
+  sourceNotRequiredReady=cfg.source_not_required===true;
   annotationReady=cfg.annotation_tracks?.includes('goal')===true;
-  $('compatibilityNotice').hidden=annotationReady;
+  sourceExportReady=cfg.source_scoped_export===true;
+  $('compatibilityNotice').hidden=annotationReady && sourceNotRequiredReady && sourceExportReady;
   if(!annotationReady) throw Error('화면과 서버 버전이 다릅니다. 진행 중인 작업이 끝나면 에디터 서버를 재시작하고 새로고침하세요. annotation은 그대로 유지됩니다.');
   $("profile").value = JSON.stringify(cfg.bag_profile, null, 2);
   for (const [stem, profile] of Object.entries(cfg.bag_profiles || {})) {
@@ -1319,16 +1679,26 @@ action(async () => {
     const stem = $("profilePick").value;
     $("profile").value = JSON.stringify(stem ? cfg.bag_profiles[stem] : cfg.bag_profile, null, 2);
   };
+  let refreshState=null;
+  try {
+    refreshState=JSON.parse(sessionStorage.getItem('editorRefresh')||'null');
+  } catch { sessionStorage.removeItem('editorRefresh'); }
   const ps = await projectList();
   if (ps.length) {
-    const pid = localStorage.getItem("editorProject");
+    const pid = refreshState?.projectId || localStorage.getItem("editorProject");
     await loadProject(
       ps.some((p) => p.project_id === pid) ? pid : ps[0].project_id,
     );
+    restoreRefreshState(refreshState);
+    if (refreshState) await fetchFrame();
+    sessionStorage.removeItem('editorRefresh');
   } else {
     const p = await api("/api/projects", { name: "첫 번째 편집 프로젝트" });
     await loadProject(p.project_id);
   }
+  await restoreHubTarget(cfg.workspace,{
+    repo:$('hubRepo'),path:$('hubPath'),private:$('hubPrivate'),
+  });
   await pollJobs();
-  jobTimer = setInterval(pollJobs, 2000);
-})();
+  jobTimer = setInterval(()=>{pollJobs();pollLinkedProject();}, 2000);
+})().finally(()=>{initializing=false;$("refresh").disabled=false;});

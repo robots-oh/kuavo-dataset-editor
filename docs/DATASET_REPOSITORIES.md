@@ -24,8 +24,24 @@ dataset 이름은 달라도 된다.
 
 기존 모든 episode와 task는 유지하고 새 선택 구간을 새로운 episode로 추가한다.
 대상 dataset 자체를 같은 프로젝트에 불러온 경우 그 원본의 clip은 자동으로 제외한다.
-같은 bag/clip을 반복 Export하는 일반적인 중복은 자동 제거하지 않으므로 새 수집분만
-선택하거나 수집 batch별 프로젝트를 사용한다.
+UI의 **Export 대상** 기본값은 **현재 선택한 원본만**이다. **프로젝트 전체 라벨**을 선택하면
+기존처럼 수집 batch를 한 번에 처리할 수 있다. CLI는 프로젝트 전체 라벨을 사용한다.
+라벨링 불필요로 표시한 원본은 저장된 라벨을 유지하면서 Export·데이터 미리보기에서 제외한다.
+
+추가할 때 대상의 `editor/frame_mapping.parquet`를 기준으로 이미 저장된 원본 프레임을 건너뛴다.
+같은 bag의 다른 구간은 추가할 수 있으며, 전부 중복이면 writer를 시작하지 않는다.
+확인 창과 `editor/operation.json`의 `skipped_duplicate_frames`에 건너뛴 수를 기록한다.
+원본 ID와 저장된 프로젝트/편집 이력의 등록 fingerprint를 비교하므로 같은 bag을 다시 import해
+ID가 달라진 경우도 인식한다. fingerprint는 이름·크기·수정 시각 기준이며 전체 파일 내용 checksum은 아니다.
+원본 매핑이 없는 외부 dataset의 과거 프레임은 판별할 수 없고, 기존 결과 안의 중복을 정리하지는 않는다.
+이미 저장된 프레임의 task를 바꾸려면 추가가 아니라 기존 dataset 수정 모드를 사용한다.
+
+Export 재개용 checkpoint는 job 폴더에 저장된다. 일반 metadata는 작업 중인 staging과 별도 사본으로
+보관하고, 앞 checkpoint와 크기·수정 시각이 같으면 checkpoint 사본끼리 hard link로 재사용한다.
+변경하지 않는 `editor/history/`와 episode 처리 중 고정된 `editor/events.jsonl`은 RWH 최적화처럼
+staging과도 hard link로 공유한다. events를 추가 기록하기 전에는 반드시 링크를 분리(`detach`)한다.
+hard link를 지원하지 않으면 복사한다. 이 방식은 반복 복사를 줄이는 것이며, 같은 디스크의
+hard link를 독립적인 외부 백업으로 간주해서는 안 된다. 이력 파일을 외부 프로그램으로 직접 수정하지 않는다.
 
 기존/추가 데이터의 FPS와 feature schema(카메라/해상도·state/action 차원 등)가 같아야 한다.
 추가는 v3.0과 기본 lock의 공식 `resume` API를 사용한다. 기존 영상 codec을 유지한다.
@@ -77,6 +93,12 @@ bash run.sh export /data/edited-existing.json /data/rack-box-v1 --mode replace -
 
 CLI도 UI와 같은 worker/저장 계획을 사용한다. 편집 프로젝트가 같은 workspace에 있으면
 `--jobs-root /data/editor-workspace/jobs`로 지정해야 저장 후 해당 프로젝트 경로도 갱신된다.
+
+API의 원본 선택은 `source_ids: ["source-a", "source-b"]`로 통일한다. 기존 ver2 화면의
+`source_id: "source-a"`도 동일한 한 원소 목록으로 변환한다. 생략/null은 프로젝트 전체이며 빈 목록은
+전체를 뜻하지 않는다. 두 필드를 함께 보냈을 때 대상이 다르면 오류다. 기존 dataset 수정(`replace`)은
+프로젝트 전체 라벨을 사용하고, 원본별 선택은 새 생성·추가 모드에서 사용한다.
+화면에서 여러 bag을 한꺼번에 처리하려면 **프로젝트 전체 라벨**을 선택한다. bag/episode를 하나로 합치는 옵션은 아니다.
 
 ## Export 속도와 episode 단위 이어가기
 

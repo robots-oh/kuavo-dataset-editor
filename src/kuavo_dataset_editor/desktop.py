@@ -128,6 +128,8 @@ def create_window(backend):
             self.add_action("출력 경로 선택…", self.choose_output)
             self.add_action('SSH 저장 폴더…', self.choose_download)
             self.add_action("작업 폴더 열기", self.open_workspace)
+            self.refresh_action = self.add_action("새로고침", self.refresh)
+            self.refresh_action.setShortcuts([QKeySequence("F5"), QKeySequence("Ctrl+R")])
             self.add_action("앱 전체화면", self.toggle_fullscreen, "F11")
             self.statusBar().showMessage("로컬 엔진 준비 완료 · 원본 읽기 전용")
             self.view.setUrl(QUrl(backend.url))
@@ -138,11 +140,19 @@ def create_window(backend):
                 item.setShortcut(QKeySequence(shortcut))
             item.triggered.connect(callback)
             self.bar.addAction(item)
+            return item
 
         def loaded(self, ok):
-            self.bar.setEnabled(ok)
+            for item in self.bar.actions():
+                item.setEnabled(ok or item is self.refresh_action)
             if not ok:
-                self.statusBar().showMessage("화면을 불러오지 못했습니다. 앱을 종료한 뒤 다시 실행하세요.")
+                self.statusBar().showMessage("화면을 불러오지 못했습니다. 새로고침 또는 F5로 다시 시도하세요.")
+
+        def refresh(self):
+            self.page.runJavaScript(
+                "if(typeof window.editorRefresh==='function'){window.editorRefresh();}"
+                "else{window.location.reload();}"
+            )
 
         def set_path(self, field, path):
             # Native selection fills a visible input only; never starts import/export.
