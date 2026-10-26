@@ -12,9 +12,11 @@ from .quality import resolve_quality,repair_index,corrected_row
 from .repositories import selected_project
 from .wholebody import prepare_project,schema_name,contract
 from .masking import mask_mapping,REASONS
+from .export_scope import normalize_export_options
 
 
 def preview_key(project,target,options):
+    options = normalize_export_options(options)
     selection=selected_project(project,target,options.get('mode','new'),options.get('annotation_track','step'),options.get('source_ids'))
     used={clip['source_id'] for clip in selection['clips']}
     sources=[]
@@ -24,8 +26,9 @@ def preview_key(project,target,options):
         if not root.exists() or not original.exists(): raise EditError('미리보기 원본 파일을 찾을 수 없습니다.')
         sources.append([source['source_id'],fingerprint(root),fingerprint(original) if original!=root else None])
     code=[Path(__file__).with_name(name).read_bytes() for name in
-          ('data_preview.py','annotations.py','wholebody.py','recorded_tf.py','rack_reconstruction.py','masking.py','quality.py','sources.py')]
+          ('data_preview.py','export_scope.py','annotations.py','wholebody.py','recorded_tf.py','rack_reconstruction.py','masking.py','quality.py','sources.py')]
     value={'project':selection,'sources':sources,'schema':schema_name(options),
+           'source_ids':options.get('source_ids'),
            'mode':options.get('mode','new'),'quality':options.get('quality'),
            'rack_calibration':options.get('rack_calibration')}
     return hashlib.sha256(json.dumps(value,sort_keys=True).encode()+b''.join(code)).hexdigest()
@@ -78,6 +81,7 @@ def _feature_values(adapter,feature,episode,start,end,repairs,source_id,times):
 
 
 def build_preview(project,target,options,directory,progress):
+    options = normalize_export_options(options)
     directory=Path(directory); directory.mkdir(parents=True,exist_ok=True)
     key=preview_key(project,target,options)
     initial=selected_project(project,target,options.get('mode','new'),options.get('annotation_track','step'),options.get('source_ids'))
@@ -141,6 +145,8 @@ def build_preview(project,target,options,directory,progress):
     if preview_key(project,target,options)!=key:
         raise EditError('미리보기 도중 원본이 변경되었습니다. 다시 계산하세요.')
     public={'project_id':project['project_id'],'project_revision':project['revision'],'schema':schema,
+            'source_ids':options.get('source_ids'),
+            'source_id':options['source_ids'][0] if options.get('source_ids') and len(options['source_ids']) == 1 else None,
             'frames':plan['kept_frames'],'episodes':plan['num_episodes'],'sources':reports,
             'annotation_track':options.get('annotation_track','step'),
             'reason_codes':REASONS,'read_only':True,'no_video_encoding':True,

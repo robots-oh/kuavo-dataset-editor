@@ -8,7 +8,7 @@ const p={tasks:{a:'Align',b:BOX_PICK_PRESETS[0].instruction,c:'Carry',g:GOAL_PRE
     {id:'d',source_id:'s',episode_id:0,start_frame:20,end_frame:25,task_id:'c'}],
   goals:[{id:'g',source_id:'s',episode_id:0,start_frame:0,end_frame:15,task_id:'g'}]};
 assert.equal(GOAL_PRESETS.length,4);
-assert.equal(GOAL_PRESETS[0].instruction,'Move the box from the left side of the middle shelf of the rack to the front of the conveyor.');
+assert.equal(GOAL_PRESETS[0].instruction,'Move the box from the left side of the top shelf of the rack to the front of the conveyor.');
 assert.equal(trackClips(p,'goal','s',0).length,1);
 assert.equal(coveringGoal(p,p.clips[1]).id,'g');assert.equal(coveringGoal(p,p.clips[3]),null);
 const before=JSON.stringify(p),draft=contiguousSteps(p,'s',0,6);

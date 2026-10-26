@@ -113,6 +113,22 @@ def test_recording_start_cannot_be_extrapolated(gaps):
     with pytest.raises(EditError): resolve_quality(project, choices)
 
 
+def test_gap_approval_survives_repeated_projection_of_saved_exclusions(gaps):
+    from kuavo_dataset_editor.annotations import project_annotations
+    project, _ = gaps
+    project['exclusions'] = [{'source_id': 'a', 'episode_id': 0, 'start_frame': 3, 'end_frame': 4}]
+    before = deepcopy(project)
+    first = project_annotations(project)
+    report = inspect_quality(first)
+    repeated = project_annotations(project)
+    assert inspect_quality(repeated)['token'] == report['token']
+    resolved, checked = resolve_quality(repeated, approval(report, 'exclude'))
+    assert checked['ready'] and compile_selection(resolved)['kept_frames'] == 8
+    assert first == repeated and project == before
+    # Excluding gaps is also deterministic when preview/worker repeat the choice.
+    assert resolved == resolve_quality(repeated, approval(report, 'exclude'))[0]
+
+
 def test_report_cache_reuses_scan_but_not_approvals_and_invalidates(gaps, monkeypatch):
     import kuavo_dataset_editor.quality as quality
     project, root = gaps

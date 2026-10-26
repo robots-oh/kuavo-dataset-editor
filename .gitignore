@@ -34,3 +34,4 @@ exports/
 previews/
 credentials/
 *token*.json
+src/kuavo_dataset_editor/static/hub-target.local.json

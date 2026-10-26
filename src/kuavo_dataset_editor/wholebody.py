@@ -249,6 +249,8 @@ class WholeBodySource(CatalogSource):
 
 def prepare_project(project, job_root, options, progress):
     """Derive once per job; reuse on episode resume. Never change Store or source files."""
+    from .export_scope import normalize_export_options
+    options = normalize_export_options(options)
     schema = schema_name(options)
     if schema=='legacy':
         return project,options

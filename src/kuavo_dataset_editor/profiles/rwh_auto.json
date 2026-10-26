@@ -3,6 +3,12 @@
   "match": [
     "rwh_auto_*.bag"
   ],
+  "display": {
+    "gripper": {
+      "state_convention": "closed_fraction",
+      "command_convention": "closed_fraction"
+    }
+  },
   "fps": 30,
   "clock": "bag_receipt_time",
   "camera_tolerance_s": 0.08,

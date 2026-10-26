@@ -3,6 +3,7 @@ import io
 import json
 import socket
 import threading
+from copy import deepcopy
 from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
@@ -42,10 +43,7 @@ def create_app(workspace, allowed_roots=()):
         return p
 
     def project_source(pid, sid):
-        project = store.get(pid)
-        source = next((s for s in project["sources"] if s["source_id"] == sid), None)
-        if source is None:
-            raise KeyError(sid)
+        source = store.source(pid, sid)
         allowed(source["path"])
         return source
 
@@ -60,6 +58,10 @@ def create_app(workspace, allowed_roots=()):
             return JSONResponse({"detail": "다른 origin에서 변경할 수 없습니다."}, status_code=403)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
+        # Revalidate the UI and its imported modules after local source updates.
+        # Camera frames keep their independent cache policy.
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
         return response
 
     @app.exception_handler(EditError)
@@ -79,7 +81,9 @@ def create_app(workspace, allowed_roots=()):
         profile = json.loads((Path(__file__).parent / "profiles/kuavo_5w.json").read_text())
         return {"workspace": str(workspace), "allowed_roots": [str(r) for r in roots], "bag_profile": profile,
                 "bag_profiles": load_all(),
-                'annotation_tracks':['step','goal']}
+                'annotation_tracks':['step','goal'], 'revision_history_restore':True,
+                'source_completion':True, 'source_not_required':True,
+                'source_scoped_export':True, 'shared_project_annotations':True}
 
     @app.get("/api/projects")
     def list_projects():
@@ -168,13 +172,43 @@ def create_app(workspace, allowed_roots=()):
     def get(pid: str):
         return store.get(pid)
 
+    @app.get('/api/projects/{pid}/revision')
+    def project_revision(pid: str):
+        return {'revision': store.revision(pid)}
+
     @app.put("/api/projects/{pid}")
     def save(pid: str, body: dict):
         with api_lock:
             before = store.get(pid)
-            after = body["project"]
-            if after["project_id"] != pid or after["sources"] != before["sources"]:
-                raise EditError("원본 등록 정보는 편집할 수 없습니다. import 기능을 사용하세요.")
+            if before['revision'] != body['expected_revision']:
+                raise EditError('다른 창에서 변경했습니다. 프로젝트를 다시 열어주세요.')
+            if 'restore_revision' in body:
+                revision = body['restore_revision']
+                if type(revision) is not int or not 0 <= revision <= before['revision']:
+                    raise EditError('유효한 이전 편집 기록을 선택하세요.')
+                previous = store.get(pid, revision)
+                source_ids = {s['source_id'] for s in previous['sources']}
+                if not source_ids <= {s['source_id'] for s in before['sources']}:
+                    raise EditError('이전 편집 기록의 원본이 현재 프로젝트에 없습니다.')
+                # Restore edits from server JSON, never browser-rounded bag timestamps.
+                # Sources and annotations added by a later import remain registered.
+                after = {**before, 'tasks':dict(previous['tasks'])}
+                for key in ('clips','goals','exclusions'):
+                    added = [c for c in before.get(key,[]) if c['source_id'] not in source_ids]
+                    after[key] = previous.get(key,[]) + added
+                    for clip in added:
+                        if 'task_id' in clip:
+                            after['tasks'][clip['task_id']] = before['tasks'][clip['task_id']]
+                after['source_splits'] = {**before.get('source_splits',{}),
+                    **{sid:previous.get('source_splits',{}).get(sid,'unspecified') for sid in source_ids}}
+                after['source_completed'] = {**before.get('source_completed',{}),
+                    **{sid:previous.get('source_completed',{}).get(sid,False) for sid in source_ids}}
+                after['source_not_required'] = {**before.get('source_not_required',{}),
+                    **{sid:previous.get('source_not_required',{}).get(sid,False) for sid in source_ids}}
+            else:
+                after = body["project"]
+                if after["project_id"] != pid or after["sources"] != before["sources"]:
+                    raise EditError("원본 등록 정보는 편집할 수 없습니다. import 기능을 사용하세요.")
             return store.save(after, body["expected_revision"])
 
     @app.post("/api/projects/{pid}/edit")
@@ -183,6 +217,8 @@ def create_app(workspace, allowed_roots=()):
             p = store.get(pid)
             if p["revision"] != body["expected_revision"]:
                 raise EditError("다른 창에서 수정했습니다. 다시 열어주세요.")
+            annotation_keys = ('clips','goals','exclusions')
+            before_annotations = {key:deepcopy(p.get(key,[])) for key in annotation_keys}
             op = body["operation"]
             if op in ('label','split','remove_clip','update_clip','remove_annotation'):
                 from .annotations import edit_annotation
@@ -192,6 +228,22 @@ def create_app(workspace, allowed_roots=()):
                 p.setdefault('exclusions',[]).append({key:body[key] for key in ('source_id','episode_id','start_frame','end_frame')} | {'id':uuid4().hex})
             elif op=='restore_exclusion':
                 p['exclusions']=[item for item in p.get('exclusions',[]) if item['id']!=body['exclusion_id']]
+            elif op=='source_completion':
+                if not any(s['source_id']==body['source_id'] for s in p['sources']):
+                    raise EditError('현재 프로젝트에 없는 원본입니다.')
+                if type(body.get('completed')) is not bool:
+                    raise EditError('라벨링 완료 여부는 true/false로 지정하세요.')
+                p.setdefault('source_completed',{})[body['source_id']] = body['completed']
+                if body['completed']:
+                    p.setdefault('source_not_required',{})[body['source_id']] = False
+            elif op=='source_not_required':
+                if not any(s['source_id']==body['source_id'] for s in p['sources']):
+                    raise EditError('현재 프로젝트에 없는 원본입니다.')
+                if type(body.get('not_required')) is not bool:
+                    raise EditError('라벨링 불필요 여부는 true/false로 지정하세요.')
+                p.setdefault('source_not_required',{})[body['source_id']] = body['not_required']
+                if body['not_required']:
+                    p.setdefault('source_completed',{})[body['source_id']] = False
             elif op == "split_assignment":
                 if body["split"] not in ("train", "validation", "test", "unspecified"):
                     raise EditError("알 수 없는 split")
@@ -202,6 +254,12 @@ def create_app(workspace, allowed_roots=()):
                         p["source_splits"][s["source_id"]] = body["split"]
             else:
                 raise EditError("알 수 없는 편집 명령")
+            for sid,completed in p.get('source_completed',{}).items():
+                if completed and any(
+                    [c for c in before_annotations[key] if c['source_id']==sid]
+                    != [c for c in p.get(key,[]) if c['source_id']==sid]
+                    for key in annotation_keys):
+                    p['source_completed'][sid] = False
             return store.save(p, body["expected_revision"])
 
     @app.get("/api/projects/{pid}/plan")
@@ -287,12 +345,27 @@ def create_app(workspace, allowed_roots=()):
                 result.append({"frame": frame, "values": {}})
         return result
 
+    @app.get('/api/projects/{pid}/activity/{sid}/{episode}')
+    def activity(pid: str, sid: str, episode: int):
+        from .activity import build_activity
+        return build_activity(project_source(pid, sid), episode)
+
     def raw_path(pid,sid):
         source=project_source(pid,sid)
         path=allowed(source.get('original_path',source['path']))
         if path.suffix.lower()!='.bag' or not path.is_file():
             raise EditError('이 원본에 연결된 rosbag이 없습니다. bag에서 가져온 원본을 선택하세요.')
         return path
+
+    @app.get('/api/projects/{pid}/torso/{sid}/{episode}/{frame}')
+    def torso(pid: str, sid: str, episode: int, frame: int):
+        from .activity import torso_window
+        return torso_window(project_source(pid, sid), episode, frame, raw_path(pid, sid))
+
+    @app.get('/api/projects/{pid}/gripper/{sid}/{episode}/{frame}')
+    def gripper(pid: str, sid: str, episode: int, frame: int):
+        from .activity import gripper_window
+        return gripper_window(project_source(pid, sid), episode, frame, raw_path(pid, sid))
 
     @lru_cache(maxsize=8)
     def raw_inventory(path,stamp):
@@ -311,8 +384,11 @@ def create_app(workspace, allowed_roots=()):
 
     def export_request(pid, body,preview=False):
         from .repositories import prepare_export, repo_identity
+        from .export_scope import normalize_export_options, select_sources
         project = store.get(pid)
         mode = body.get("mode", "new")
+        scope = normalize_export_options(body)
+        project = select_sources(project, scope.get('source_ids'))
         if mode == "new":
             identity = repo_identity(body.get("repo_name") or ('preview-'+pid if preview else ''))
             target = allowed(body.get("target") or (workspace/'.preview-plans'/pid if preview else workspace / "exports" / identity["slug"]))
@@ -322,14 +398,10 @@ def create_app(workspace, allowed_roots=()):
             target = allowed(body["target"])
             allowed(target.parent)  # Backup/staging directories are siblings, not children.
         options = {"mode": mode, "repo_name": body.get("repo_name"),
+                   'source_ids':scope.get('source_ids'),
                    'schema':body.get('schema','legacy'),
                    'annotation_track':body.get('annotation_track','step'),
                    "confirm_existing": body.get("confirm_existing") is True}
-        if body.get('source_ids') is not None:
-            ids = body['source_ids']
-            if not isinstance(ids, list) or not ids or any(not isinstance(i, str) for i in ids):
-                raise EditError('source_ids는 원본 id 문자열 목록이어야 합니다.')
-            options['source_ids'] = list(dict.fromkeys(ids))
         if body.get('rack_calibration') is not None:
             if not isinstance(body['rack_calibration'],dict):
                 raise EditError('rack_calibration은 rack_tags 배열을 포함한 JSON 객체여야 합니다.')
@@ -340,6 +412,9 @@ def create_app(workspace, allowed_roots=()):
                 raise EditError('누락 구간 선택 형식이 잘못됐습니다.')
             options['quality'] = {key: approval.get(key) for key in ('token', 'decisions')}
         plan = prepare_export(project, target, options)
+        used = {run['source_id'] for run in plan['runs']}
+        plan['source_names'] = [Path(s.get('original_path',s['path'])).name
+                                for s in project['sources'] if s['source_id'] in used]
         return project, target, options, plan
 
     def preview_snapshot(pid,jid):

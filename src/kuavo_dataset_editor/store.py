@@ -2,9 +2,11 @@
 import json
 import sqlite3
 import threading
+from collections import OrderedDict
 from copy import deepcopy
 from pathlib import Path
 from .core import EditError, compile_selection, normalize_step_annotations, merge_adjacent_clips
+from .shared_annotations import source_annotations, copy_source_annotations
 
 
 class Store:
@@ -12,6 +14,7 @@ class Store:
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
+        self._source_cache = OrderedDict()
         self.db = sqlite3.connect(self.root / "editor.sqlite", check_same_thread=False)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, revision INTEGER, payload TEXT)")
@@ -41,22 +44,78 @@ class Store:
                     return self.save({**project, 'clips': merged_clips}, project["revision"])
             return project
 
+    def revision(self, pid):
+        with self.lock:
+            row = self.db.execute('SELECT revision FROM projects WHERE id=?', (pid,)).fetchone()
+            if not row:
+                raise KeyError(pid)
+            return row[0]
+
+    def source(self, pid, sid):
+        """Read-only descriptors for playback; do not parse all labels per camera.
+
+        Check the durable revision on every call, including changes made by other
+        Store instances. Keep at most two project indexes and load a cold index
+        once under the lock so concurrent camera requests share it.
+        """
+        with self.lock:
+            revision = self.revision(pid)
+            cached = self._source_cache.get(pid)
+            if cached is None or cached[0] != revision:
+                row = self.db.execute('SELECT revision,payload FROM projects WHERE id=?', (pid,)).fetchone()
+                if not row:
+                    raise KeyError(pid)
+                project = json.loads(row[1])
+                cached = (row[0], {s['source_id']: s for s in project['sources']})
+                self._source_cache[pid] = cached
+                if len(self._source_cache) > 2:
+                    self._source_cache.popitem(last=False)
+            self._source_cache.move_to_end(pid)
+            if sid not in cached[1]:
+                raise KeyError(sid)
+            return cached[1][sid]
+
+    def _write_revision(self, project, revision):
+        project['revision'] = revision
+        payload = json.dumps(project, ensure_ascii=False)
+        self.db.execute('INSERT OR REPLACE INTO projects VALUES (?,?,?)',
+                        (project['project_id'], revision, payload))
+        self.db.execute('INSERT INTO revisions VALUES (?,?,?)',
+                        (project['project_id'], revision, payload))
+
     def save(self, project, expected):
         compile_selection(project)
         with self.lock:
             self.db.execute("BEGIN IMMEDIATE")
             try:
                 pid = project["project_id"]
-                row = self.db.execute("SELECT revision FROM projects WHERE id=?", (pid,)).fetchone()
+                row = self.db.execute("SELECT revision,payload FROM projects WHERE id=?", (pid,)).fetchone()
                 if row and row[0] != expected:
                     raise EditError("다른 창에서 변경했습니다. 프로젝트를 다시 열어주세요.")
                 if not row and expected != -1:
                     raise EditError("프로젝트가 없습니다.")
+                before = json.loads(row[1]) if row else None
+                group = project.get('annotation_group')
+                if before and group != before.get('annotation_group'):
+                    raise EditError('프로젝트의 annotation 연결은 일반 편집으로 변경할 수 없습니다.')
                 p = normalize_step_annotations(project)
-                p["revision"] = row[0] + 1 if row else 0
-                payload = json.dumps(p, ensure_ascii=False)
-                self.db.execute("INSERT OR REPLACE INTO projects VALUES (?, ?, ?)", (pid, p["revision"], payload))
-                self.db.execute("INSERT INTO revisions VALUES (?, ?, ?)", (pid, p["revision"], payload))
+                if group:
+                    changed = {s['source_id'] for s in p['sources']
+                               if source_annotations(before, s['source_id'])
+                               != source_annotations(p, s['source_id'])}
+                    peers = self.db.execute(
+                        "SELECT revision,payload FROM projects WHERE id<>? "
+                        "AND json_extract(payload,'$.annotation_group')=?", (pid, group)).fetchall()
+                    for revision, payload in peers:
+                        peer = json.loads(payload)
+                        shared = changed & {s['source_id'] for s in peer['sources']}
+                        shared = {sid for sid in shared if source_annotations(p, sid)
+                                  != source_annotations(peer, sid)}
+                        if shared:
+                            updated = normalize_step_annotations(copy_source_annotations(p, peer, shared))
+                            compile_selection(updated)
+                            self._write_revision(updated, revision + 1)
+                self._write_revision(p, row[0] + 1 if row else 0)
                 self.db.commit()
             except BaseException:
                 self.db.rollback()
