@@ -99,3 +99,54 @@ df -B1 /absolute/editor-workspace
 ```
 
 Do not add nested `du` totals or independently scanned hardlink aliases together.
+
+## Repair moved original bag paths
+
+When a workspace/cache was copied from another PC, cached images may still be
+viewable even though `original_path` points to the old workstation. Wholebody
+Export needs the original bag to reconstruct torso/base values.
+
+With servers stopped, preview and then explicitly apply a source-path repair:
+
+```bash
+bash run.sh relink-bags --workspace /absolute/editor-workspace \
+  --bag-root /absolute/rosbags
+# Add --apply after reviewing the plan. Repeat --bag-root for another original root.
+```
+
+Only missing original `.bag` paths of catalog sources are eligible. The extraction
+cache must still exist. A unique candidate must match the saved fingerprint:
+filename, size and nanosecond modification time. This is the existing metadata
+fingerprint contract, **not** a full bag-content checksum. Missing, different or
+ambiguous candidates are reported and left unchanged; no bag is copied or edited.
+
+Only `original_path` changes. The complete project is verified to be identical
+apart from approved path changes before adding one relocation revision per changed
+project. Prior revisions remain intact; a `source_relocations` journal records old
+and new paths. This does not relocate missing image caches or rewrite old job
+requests. After a code/storage migration, start a new Export from saved annotations
+instead of assuming a pre-migration interrupted job will resume across versions.
+
+## Real-bag smoke validation (2026-10-26)
+
+The updated integrated code was checked against the newest available primary
+recordings of each type on the validation host:
+
+- VR: `vr_trial_182_20261023_195130_457053.bag`.
+- RWH: `rwh_auto_20261026_191654.bag`.
+
+Each contributed a 60-frame interval (not a full long-bag conversion), producing
+120 frames in two episodes with state 24 / action 23 and per-frame task changes.
+The first/last frames of all three cameras decoded successfully. The compressed
+event chunk contained 3,349 readable events. Missing rack-pose values retained
+the existing validity-mask behavior; no interpolation was approved or applied.
+Source bag size/mtime fingerprints were unchanged.
+
+The VR extraction cache was reused after checking its bag fingerprint. That
+cache still recorded an older workstation's original-bag mount path; only the
+disposable test descriptor was pointed to the actual bag selected for this test.
+Production project descriptors and annotations were not relinked by validation.
+Generated test conversions and newly extracted test images were removed, keeping
+the small validation report. Full Python regression: 163 passed, 9 skipped; docs
+generation/link checks passed separately. Small official writer new/append/replace
+and episode recovery tests also passed.

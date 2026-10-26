@@ -26,6 +26,10 @@ def main():
     compact = sub.add_parser('storage-compact', help='Plan/apply offline lossless workspace compaction')
     compact.add_argument('--root', action='append', required=True)
     compact.add_argument('--apply', action='store_true')
+    relink = sub.add_parser('relink-bags', help='Plan/apply exact-fingerprint repair of moved original bag paths')
+    relink.add_argument('--workspace', required=True)
+    relink.add_argument('--bag-root', action='append', required=True)
+    relink.add_argument('--apply', action='store_true')
     child = sub.add_parser("_worker", help=argparse.SUPPRESS)
     child.add_argument("directory")
     export = sub.add_parser("export", help="Export a saved project JSON using the same core as the UI")
@@ -54,6 +58,9 @@ def main():
         from .storage_maintenance import main as compact_main
         sys.argv = [sys.argv[0]] + [value for root in args.root for value in ('--root', root)] + (['--apply'] if args.apply else [])
         compact_main()
+    elif args.command == 'relink-bags':
+        from .relink_originals import relink as relink_originals
+        print(json.dumps(relink_originals(args.workspace, args.bag_root, args.apply), ensure_ascii=False))
     elif args.command == "doctor":
         from .doctor import run
         run(args)
