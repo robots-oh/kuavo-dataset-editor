@@ -25,6 +25,7 @@ def test_new_append_replace_and_backup(tmp_path, monkeypatch):
     from kuavo_dataset_editor.repositories import prepare_export, with_existing_labels
     from kuavo_dataset_editor.sources import LeRobotSource, demo_source, fingerprint, write_json
     from kuavo_dataset_editor.store import Store
+    from kuavo_dataset_editor.storage import dataset_event_files, open_events
 
     source = demo_source(tmp_path / 'source', 'a')
     source['events'] = 'events.jsonl'
@@ -43,7 +44,9 @@ def test_new_append_replace_and_backup(tmp_path, monkeypatch):
     assert json.loads((target / 'editor/dataset.json').read_text())['name'] == 'team/rack-box-v1'
     first = LeRobotSource(target).rows(0)
     before = fingerprint(target)
-    events_before = (target / 'editor/events.jsonl').read_bytes()
+    first_event_file = next(dataset_event_files(target / 'editor'))
+    first_event_relative = first_event_file.relative_to(target / 'editor')
+    events_before = first_event_file.read_bytes()
     addition = new_project('append')
     addition['sources'] = [source]
     addition = label(addition, 'a', 0, 20, 24, 'carry')
@@ -59,11 +62,12 @@ def test_new_append_replace_and_backup(tmp_path, monkeypatch):
     assert result['source_names'] == ['source'] and result['project_name'] == 'append'
     assert result['published_at'] > 0
     assert fingerprint(result['backup']) == before
-    # Provenance is hard linked, not copied, and the append wrote to its own detached copy.
-    backup_events = Path(result['backup']) / 'editor/events.jsonl'
+    # Previous chunks are shared, append writes only one new chunk.
+    backup_events = Path(result['backup']) / 'editor' / first_event_relative
     assert backup_events.read_bytes() == events_before
-    assert (target / 'editor/history/job-append/events.jsonl').stat().st_ino == backup_events.stat().st_ino
-    assert (target / 'editor/events.jsonl').stat().st_ino != backup_events.stat().st_ino
+    assert (target / 'editor/history/job-append' / first_event_relative).stat().st_ino == backup_events.stat().st_ino
+    assert (target / 'editor' / first_event_relative).stat().st_ino == backup_events.stat().st_ino
+    assert len(list(dataset_event_files(target / 'editor'))) == 2
     appended_fingerprint = fingerprint(target)
     with pytest.raises(EditError, match='이미.*Export'):
         run(addition, 'job-duplicate', {'mode': 'append', 'confirm_existing': True})
@@ -100,7 +104,10 @@ def test_new_append_replace_and_backup(tmp_path, monkeypatch):
     rows = ds.dataset(str(target / 'data'), format='parquet').to_table().to_pylist()
     assert len(rows) == 10
     assert rows[0]['task_index'] != rows[2]['task_index']
-    retained_events = [json.loads(line) for line in (target / 'editor/events.jsonl').read_text().splitlines()]
+    retained_events = []
+    for path in dataset_event_files(target / 'editor'):
+        with open_events(path) as stream:
+            retained_events.extend(json.loads(line) for line in stream)
     assert len(retained_events) == 2 and {e['episode_index'] for e in retained_events} == {0, 1}
     assert all(e['marker_id'] == 7 for e in retained_events)
     before = fingerprint(target)

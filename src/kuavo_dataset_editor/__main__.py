@@ -23,6 +23,9 @@ def main():
     desktop.add_argument("--write-shortcut", metavar="PATH", help="Write a Linux .desktop launcher instead of opening a window")
     inspect = sub.add_parser("inspect-bag", help="Print topics without publishing anything")
     inspect.add_argument("path")
+    compact = sub.add_parser('storage-compact', help='Plan/apply offline lossless workspace compaction')
+    compact.add_argument('--root', action='append', required=True)
+    compact.add_argument('--apply', action='store_true')
     child = sub.add_parser("_worker", help=argparse.SUPPRESS)
     child.add_argument("directory")
     export = sub.add_parser("export", help="Export a saved project JSON using the same core as the UI")
@@ -46,7 +49,12 @@ def main():
     hub.add_argument("--sync-existing", action="store_true", help="Confirm complete snapshot replacement, not remote append")
     args = parser.parse_args()
     os.environ.setdefault("HF_HUB_OFFLINE", "0" if args.command == "hub" else "1")
-    if args.command == "doctor":
+    if args.command == 'storage-compact':
+        import sys
+        from .storage_maintenance import main as compact_main
+        sys.argv = [sys.argv[0]] + [value for root in args.root for value in ('--root', root)] + (['--apply'] if args.apply else [])
+        compact_main()
+    elif args.command == "doctor":
         from .doctor import run
         run(args)
     elif args.command == "desktop":

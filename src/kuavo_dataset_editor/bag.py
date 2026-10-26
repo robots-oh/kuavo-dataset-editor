@@ -10,6 +10,7 @@ from PIL import Image
 from .ros1_reader import Ros1Reader
 
 from .sources import CatalogSource, fingerprint, write_json
+from .storage import open_events
 
 
 def attr(message, path):
@@ -104,7 +105,7 @@ def import_bag(path, root, sid, profile, progress):
     errors, counts = [], {}
     initial_fingerprint = fingerprint(path)
     # Original sparse events, including tag detections, are preserved as messages.
-    with (root / "events.jsonl").open("w") as events, Ros1Reader(path) as reader:
+    with open_events(root / "events.jsonl.gz", "wt") as events, Ros1Reader(path) as reader:
         origin, last = int(reader.start_time), int(reader.end_time)-1
         connections = [c for c in reader.connections if c.topic in wanted]
         available = {c.topic for c in connections}
@@ -207,7 +208,7 @@ def import_bag(path, root, sid, profile, progress):
                 "fingerprint": initial_fingerprint, "fps": fps, "robot_type": "kuavo_5w",
                 "features": features, "cameras": list(cameras), "arrays": arrays, "images": image_paths,
                 "episodes": [{"episode_id": 0, "num_frames": n}], "origin_bag_time_ns": origin,
-                "profile": profile, "report": report, "events": "events.jsonl", "time_mapping": "time_mapping.npz",
+                "profile": profile, "report": report, "events": "events.jsonl.gz", "time_mapping": "time_mapping.npz",
                 "validity_masks": validity_masks, "invalid_placeholder": "zero_only_where_validity_is_false"}
     write_json(root / "catalog.json", manifest)
     write_json(root / "import_report.json", report)

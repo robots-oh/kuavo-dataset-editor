@@ -214,20 +214,21 @@ def _write_dataset(project, staging, job_root, progress, transaction):
     columns = sorted({key for row in output_rows for key in row})
     pq.write_table(pa.table({key: [row.get(key) for row in output_rows] for key in columns}), provenance / "frame_mapping.parquet")
     # Events remain sparse; an event is copied only where its source time is retained.
-    from .checkpoints import detach
-    detach(provenance / "events.jsonl")     # linked from the target/checkpoint: append to our own copy
-    with (provenance / "events.jsonl").open("a" if append else "w") as output_events:
+    from .storage import open_events, dataset_event_files, new_event_chunk
+    chunk, event_index = new_event_chunk(provenance, append)
+    with open_events(chunk, "wt") as output_events:
         for sid, adapter in adapters.items():
             if isinstance(adapter, CatalogSource) and adapter.manifest.get("events"):
-                event_file = adapter.root / adapter.manifest["events"]
+                event_files = [adapter.root / adapter.manifest["events"]]
                 dataset_coordinates = False
             else:
-                event_file = adapter.root / "editor/events.jsonl"
+                event_files = dataset_event_files(adapter.root / 'editor')
                 dataset_coordinates = True
-                if not event_file.is_file():
-                    continue
-            with event_file.open() as event_stream:
-                for line in event_stream:
+            from itertools import chain
+            from contextlib import ExitStack
+            with ExitStack() as stack:
+                streams = [stack.enter_context(open_events(path)) for path in event_files]
+                for line in chain.from_iterable(streams):
                     event = json.loads(line)
                     t = event["output_time_s"] if dataset_coordinates else event["source_time_s"]
                     for index, run in enumerate(plan["runs"], start=base_episodes):
@@ -237,6 +238,7 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                             mapped = {**event, "source_id": sid, "episode_index": index,
                                       "output_time_s": t-run["start_frame"]/plan["fps"]}
                             output_events.write(json.dumps(mapped, ensure_ascii=False)+"\n")
+    write_json(provenance / 'events.index.json', event_index)
     from .masking import finalize_mask_metadata
     progress(0.93,'유효한 값만으로 정규화 통계·누락 요약 저장 (영상 재디코딩 없음)')
     mask_summary = finalize_mask_metadata(staging)
