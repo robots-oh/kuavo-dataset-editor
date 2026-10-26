@@ -205,6 +205,26 @@ def test_every_selected_recording_is_derived(tmp_path):
     assert all(s.get('export_derivation') for s in project['sources'])
 
 
+def test_source_ids_export_only_the_chosen_recordings(tmp_path):
+    from kuavo_dataset_editor.core import EditError
+    from kuavo_dataset_editor.repositories import prepare_export, selected_project
+    (tmp_path/'a').mkdir(); (tmp_path/'b').mkdir()
+    project = recording(tmp_path/'a',torso=True,calibration=False,rwh=True)
+    other = recording(tmp_path/'b',torso=True,calibration=False,rwh=True)
+    source = deepcopy(other['sources'][0]); source['source_id'] = 'b'
+    project['sources'].append(source)
+    project = label(project,'b',0,2,9,'pick')
+    picked = selected_project(project,tmp_path/'out','new','step',['b'])
+    assert [s['source_id'] for s in picked['sources']]==['b'] and {c['source_id'] for c in picked['clips']}=={'b'}
+    options = {'mode':'new','repo_name':'pick-only','schema':FULL}
+    assert prepare_export(project,tmp_path/'out',options)['kept_frames']==5+7
+    assert prepare_export(project,tmp_path/'out',{**options,'source_ids':['b']})['kept_frames']==7
+    derived,_ = prepare_project(project,tmp_path/'job',{**options,'source_ids':['b']},lambda *_:None)
+    assert [s['source_id'] for s in derived['sources']]==['b']
+    with pytest.raises(EditError):
+        selected_project(project,tmp_path/'out','new','step',['nope'])
+
+
 @pytest.mark.skipif(os.environ.get('EDITOR_TEST_EXPORT')!='1',reason='5-frame official export smoke')
 def test_wholebody_official_roundtrip(tmp_path):
     from kuavo_dataset_editor.exporter import export_dataset

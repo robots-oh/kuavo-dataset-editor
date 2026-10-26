@@ -325,6 +325,11 @@ def create_app(workspace, allowed_roots=()):
                    'schema':body.get('schema','legacy'),
                    'annotation_track':body.get('annotation_track','step'),
                    "confirm_existing": body.get("confirm_existing") is True}
+        if body.get('source_ids') is not None:
+            ids = body['source_ids']
+            if not isinstance(ids, list) or not ids or any(not isinstance(i, str) for i in ids):
+                raise EditError('source_ids는 원본 id 문자열 목록이어야 합니다.')
+            options['source_ids'] = list(dict.fromkeys(ids))
         if body.get('rack_calibration') is not None:
             if not isinstance(body['rack_calibration'],dict):
                 raise EditError('rack_calibration은 rack_tags 배열을 포함한 JSON 객체여야 합니다.')

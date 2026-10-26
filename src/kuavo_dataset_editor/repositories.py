@@ -117,9 +117,19 @@ def existing_identity(target):
     return repo_identity(Path(target).name)
 
 
-def selected_project(project, target, mode,annotation_track='step'):
+def selected_project(project, target, mode,annotation_track='step',source_ids=None):
+    """source_ids: export only these recordings of the project (None = all). Lets one project collect many
+    recordings while 'append' adds just the new ones instead of re-adding everything already exported."""
     from .annotations import project_annotations
     result = project_annotations(project,annotation_track)
+    if source_ids is not None:
+        keep = set(source_ids)
+        missing = keep - {s["source_id"] for s in result["sources"]}
+        if missing or not keep:
+            raise EditError("내보낼 원본이 프로젝트에 없습니다: " + ", ".join(sorted(missing)) if missing else "내보낼 원본을 하나 이상 고르세요.")
+        result["sources"] = [s for s in result["sources"] if s["source_id"] in keep]
+        for key in ('clips','goals','exclusions'):
+            result[key] = [c for c in result.get(key,[]) if c['source_id'] in keep]
     if mode == "append":
         # Imported existing labels are for editing, not instructions to duplicate
         # the target's own episodes when appending new bags to that same dataset.
@@ -141,7 +151,7 @@ def prepare_export(project, target, options=None):
     if mode not in ("new", "append", "replace"):
         raise EditError("알 수 없는 dataset 저장 방식입니다.")
     target = Path(target).expanduser().resolve()
-    selection = selected_project(project, target, mode,options.get('annotation_track','step'))
+    selection = selected_project(project, target, mode,options.get('annotation_track','step'),options.get('source_ids'))
     from .quality import resolve_quality
     selection, quality = resolve_quality(selection, options.get('quality'))
     plan = compile_selection(selection)
@@ -221,7 +231,7 @@ class RepositoryTransaction:
         if not self.plan['quality']['ready']:
             raise EditError('누락 데이터가 있습니다. 미리보기에서 끊긴 프레임 수와 시간을 확인하고 보정/제외를 선택하세요.')
         from .quality import selection_with_quality
-        self.selection = selection_with_quality(selected_project(project, target, self.plan["mode"],self.options.get('annotation_track','step')), self.plan['quality'])
+        self.selection = selection_with_quality(selected_project(project, target, self.plan["mode"],self.options.get('annotation_track','step'),self.options.get('source_ids')), self.plan['quality'])
         self.target = Path(self.plan["target"])
         self.staging = self.target.parent / f".{self.target.name}.{self.job_root.name}.partial"
         self.backup = self.target.parent / f".{self.target.name}.backup-{self.job_root.name}"
