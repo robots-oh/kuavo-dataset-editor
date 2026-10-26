@@ -21,6 +21,7 @@ PAGES = [
     ("docs/GOAL_ANNOTATIONS.md", "Goal / Step 두 계층 라벨"),
     ("docs/SOURCE_STATUS.md", "원본별 라벨링 상태"),
     ("docs/ACTIVITY_VIEW.md", "영상 동작 요약"),
+    ("docs/STORAGE.md", "저장 공간 · 무손실 정리"),
     ("docs/HUGGING_FACE.md", "Hugging Face 업로드"),
     ("docs/LEROBOT_COMPATIBILITY.md", "LeRobot 버전·업데이트"),
     ("docs/ARCHITECTURE.md", "구조"),
