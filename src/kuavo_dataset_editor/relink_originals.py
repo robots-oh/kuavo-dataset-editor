@@ -6,7 +6,6 @@ import json
 import os
 from pathlib import Path
 import sqlite3
-import time
 
 from .storage import init_sources, pack_revision
 from .storage_maintenance import require_offline
@@ -58,11 +57,13 @@ def relink(workspace, bag_roots, apply=False):
                     report['skipped'].append({'project': pid, 'source_id': source['source_id'],
                                                'reason': 'extraction_cache_missing'})
                     continue
-                matching = [path for path, fp in candidates.get(Path(old).name, {}).items()
+                named = candidates.get(Path(old).name, {})
+                matching = [path for path, fp in named.items()
                             if fp == source.get('fingerprint')]
                 if len(matching) != 1:
                     report['skipped'].append({'project': pid, 'source_id': source['source_id'],
-                        'old': old, 'reason': 'no_exact_fingerprint' if not matching else 'ambiguous'})
+                        'old': old, 'reason': ('ambiguous' if matching else
+                                              'fingerprint_mismatch' if named else 'original_not_found')})
                     continue
                 change = {'project': pid, 'source_id': source['source_id'], 'index': index,
                           'old': old, 'new': matching[0], 'revision_before': revision}
@@ -111,6 +112,8 @@ def main(argv=None):
     result = relink(args.workspace, args.bag_root, args.apply)
     if args.report:
         Path(args.report).write_text(json.dumps(result, ensure_ascii=False, indent=2))
+        result = {**{k: v for k, v in result.items() if k not in ('changes', 'skipped')},
+                  'skipped_descriptors': len(result['skipped']), 'report': args.report}
     print(json.dumps(result, ensure_ascii=False), flush=True)
 
 

@@ -46,5 +46,5 @@ def test_different_fingerprint_never_matches_filename_only(tmp_path):
         'fps': 30, 'episodes': [{'episode_id': 0, 'num_frames': 100}]}]
     original = store.save(label(project, 'a', 0, 0, 50, 'pick'), -1)
     result = relink(tmp_path / 'workspace', [bags], apply=True)
-    assert result['changes'] == [] and result['skipped'][0]['reason'] == 'no_exact_fingerprint'
+    assert result['changes'] == [] and result['skipped'][0]['reason'] == 'fingerprint_mismatch'
     assert store.get(project['project_id']) == original
