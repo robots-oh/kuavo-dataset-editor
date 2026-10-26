@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from kuavo_dataset_editor.checkpoints import EpisodeCheckpoint, checkpoint_state
+from kuavo_dataset_editor.checkpoints import EpisodeCheckpoint, checkpoint_state, detach
 from kuavo_dataset_editor.core import EditError
 from kuavo_dataset_editor.dataset_lock import dataset_lock
 from kuavo_dataset_editor.sources import write_json
@@ -31,6 +31,29 @@ def test_metadata_rollback_keeps_completed_media_and_quarantines_partial(tmp_pat
     (staging / 'videos/complete.mp4').write_bytes(b'corrupted')
     with pytest.raises(EditError, match='변경/누락'):
         checkpoint.restore()
+
+
+def test_checkpoint_links_frozen_provenance_and_append_never_reaches_it(tmp_path):
+    staging, job = tmp_path / 'out.partial', tmp_path / 'job'
+    (staging / 'editor/history/old').mkdir(parents=True)
+    (staging / 'meta').mkdir()
+    job.mkdir()
+    events, old = staging / 'editor/events.jsonl', staging / 'editor/history/old/events.jsonl'
+    events.write_text('e1\n')
+    old.write_text('h1\n')
+    write_json(staging / 'editor/project.json', {'v': 1})
+    state = EpisodeCheckpoint(staging, job, {}).save(0, 0, [], [], [])
+    mutable = job / state['directory'] / 'mutable'
+    # GB-sized, never-rewritten provenance shares the inode; small mutable metadata is a real copy.
+    assert (mutable / 'editor/events.jsonl').stat().st_ino == events.stat().st_ino
+    assert (mutable / 'editor/history/old/events.jsonl').stat().st_ino == old.stat().st_ino
+    assert (mutable / 'editor/project.json').stat().st_ino != (staging / 'editor/project.json').stat().st_ino
+    detach(events)
+    with events.open('a') as stream:
+        stream.write('e2\n')
+    assert (mutable / 'editor/events.jsonl').read_text() == 'e1\n'
+    assert EpisodeCheckpoint(staging, job, {}).restore()['completed_episodes'] == 0
+    assert events.read_text() == 'e1\n'
 
 
 def test_zero_episode_checkpoint_restarts_create_without_existing_root(tmp_path):

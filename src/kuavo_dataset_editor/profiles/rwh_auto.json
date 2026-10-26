@@ -1,0 +1,136 @@
+{
+  "name": "Kuavo 5W rwh_auto (PoC2 자동 녹화)",
+  "match": [
+    "rwh_auto_*.bag"
+  ],
+  "fps": 30,
+  "clock": "bag_receipt_time",
+  "camera_tolerance_s": 0.08,
+  "state_tolerance_s": 0.1,
+  "command_max_age_s": 1.0,
+  "cameras": {
+    "observation.images.head": "/head_camera/color/image_raw/compressed",
+    "observation.images.left_wrist": "/left_wrist_camera/color/image_raw/compressed",
+    "observation.images.right_wrist": "/right_wrist_camera/color/image_raw/compressed"
+  },
+  "signals": [
+    {
+      "key": "observation.state",
+      "topic": "/sensors_data_raw",
+      "field": "joint_data.joint_q",
+      "slice": [
+        4,
+        18
+      ],
+      "size": 14,
+      "unit": "rad",
+      "method": "nearest",
+      "required": true
+    },
+    {
+      "key": "action",
+      "topic": "/rwh/capture/arm_cmd_hold",
+      "field": "position",
+      "size": 14,
+      "scale": 0.017453292519943295,
+      "unit": "rad",
+      "input_unit": "degree",
+      "method": "previous",
+      "required": true
+    },
+    {
+      "key": "observation.gripper",
+      "topic": "/rwh/capture/claw_state",
+      "field": "data.position",
+      "names_field": "data.name",
+      "order": [
+        "left_claw",
+        "right_claw"
+      ],
+      "size": 2,
+      "scale": 0.01,
+      "unit": "open_fraction_0_closed_1_open",
+      "method": "nearest",
+      "required": false
+    },
+    {
+      "key": "action.gripper",
+      "topic": "/rwh/capture/claw_cmd_hold",
+      "field": "data.position",
+      "names_field": "data.name",
+      "order": [
+        "left_claw",
+        "right_claw"
+      ],
+      "size": 2,
+      "scale": 0.01,
+      "unit": "open_fraction_0_closed_1_open",
+      "method": "previous",
+      "required": false
+    },
+    {
+      "key": "action.base",
+      "topic": "/rwh/navigation_proxy/cmd_vel_plan",
+      "fields": [
+        "linear.x",
+        "linear.y",
+        "angular.z"
+      ],
+      "size": 3,
+      "unit": "m/s,m/s,rad/s",
+      "method": "previous",
+      "required": false
+    },
+    {
+      "key": "observation.base",
+      "topic": "/odom",
+      "fields": [
+        "pose.pose.position.x",
+        "pose.pose.position.y",
+        "pose.pose.orientation.x",
+        "pose.pose.orientation.y",
+        "pose.pose.orientation.z",
+        "pose.pose.orientation.w"
+      ],
+      "size": 6,
+      "unit": "m,m,quaternion_xyzw",
+      "method": "nearest",
+      "required": false
+    }
+  ],
+  "event_topics": [
+    "/tag_detections",
+    "/rwh/tag_detections",
+    "/rwh/rack_pose",
+    "/rwh/robot_pose",
+    "/rwh/marker_localization/status",
+    "/dataset/base_pose_in_rack",
+    "/dataset/base_pose_in_rack/status",
+    "/tf",
+    "/tf_static",
+    "/quest_joystick_data",
+    "/quest_joystick_data_clutch",
+    "/vr_capture/session_event",
+    "/quest3/triger_arm_mode",
+    "/grasp_event",
+    "/cmd_torso_vel",
+    "/torso_open_loop_state",
+    "/rwh/capture/base_pose_in_rack",
+    "/rwh/capture/status",
+    "/rwh/orchestrator/stage",
+    "/cmd_pose",
+    "/cmd_lb_torso_pose"
+  ],
+  "wholebody": {
+    "topics": {
+      "arms": "/rwh/capture/arm_cmd_hold",
+      "grip_state": "/rwh/capture/claw_state",
+      "grip_action": "/rwh/capture/claw_cmd_hold",
+      "velocity": "/rwh/navigation_proxy/cmd_vel_plan"
+    },
+    "base_pose_topic": "/rwh/capture/base_pose_in_rack"
+  },
+  "tag_id": 7,
+  "tag_size_m": 0.04,
+  "notes": "rwh PoC2 자동 녹화(rwh_capture, 2026-10-24~). 팀 토픽은 움직일 때만 나와(팔 명령 최대 31 초 빔 · /leju_claw_state 에 실제/가짜 메시지 섞임 · /cmd_vel 없음) rwh 가 녹화 중에만 내는 보조 토픽을 쓴다: arm_cmd_hold = 마지막 /kuavo_arm_traj(도)를 되풀이, 명령 전엔 측정 관절; claw_cmd_hold = 마지막 /leju_claw_command 되풀이; claw_state = 실제 드라이버 메시지만; cmd_vel_plan = rwh 바퀴 계획 속도(base_link m/s, rad/s). wholebody 랙 자리는 /rwh/capture/base_pose_in_rack(TF rack→base_link 10 Hz, 랙 원점 앞면 가운데 바닥 · x 안쪽 · y 왼쪽)를 그대로 쓴다(태그 재구성 안 함). 토르소 명령은 /joint_cmd(팀 schema 와 같음). No idle/failure/A-off removal. Missing optional topic is omitted; missing samples are marked invalid, never filled as valid. Base and gripper use separate named features, not an assumed policy action vector."
+}

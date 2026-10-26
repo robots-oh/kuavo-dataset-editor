@@ -16,6 +16,7 @@ from PIL import Image
 
 from .core import EditError, compile_selection, label, new_project, split_clip, subtract
 from .jobs import JobManager
+from .profile_pick import for_path, load_all
 from .sources import open_source,file_stamp
 from .store import Store
 
@@ -77,6 +78,7 @@ def create_app(workspace, allowed_roots=()):
     def config():
         profile = json.loads((Path(__file__).parent / "profiles/kuavo_5w.json").read_text())
         return {"workspace": str(workspace), "allowed_roots": [str(r) for r in roots], "bag_profile": profile,
+                "bag_profiles": load_all(),
                 'annotation_tracks':['step','goal']}
 
     @app.get("/api/projects")
@@ -152,7 +154,7 @@ def create_app(workspace, allowed_roots=()):
             download_dir,custom_download_dir,transport = validate_transfer_settings(body)
             save_transfer_settings(download_dir,transport)
         return jobs.start("ssh-import", {"host": host, "project_id": pid,
-            "items": [{"source_id": uuid4().hex, "path": p} for p in dict.fromkeys(paths)],
+            "items": [{"source_id": uuid4().hex, "path": p, "profile": for_path(p, body.get("profile"))} for p in dict.fromkeys(paths)],
             'download_dir':str(download_dir),'transport':transport,
             'download_device':(download_dir if download_dir.is_dir() else workspace).stat().st_dev,
             'download_root_required':custom_download_dir,
@@ -221,10 +223,10 @@ def create_app(workspace, allowed_roots=()):
                 raise EditError(".bag 파일 또는 LeRobot 루트 폴더를 선택하세요. 경로는 편집기 서버 PC 기준입니다.")
         if len(paths) > 1:
             return jobs.start("import-batch", {"project_id": pid,
-                "items": [{"source_id": uuid4().hex, "path": str(p)} for p in paths],
+                "items": [{"source_id": uuid4().hex, "path": str(p), "profile": for_path(p, body.get("profile"))} for p in paths],
                 "profile": body.get("profile") or config()["bag_profile"]})
         path = paths[0]
-        payload.update(path=str(path), profile=body.get("profile") or config()["bag_profile"])
+        payload.update(path=str(path), profile=for_path(path, body.get("profile")))
         return jobs.start("import", payload)
 
     @app.post("/api/projects/{pid}/attach/{jid}")
@@ -323,6 +325,11 @@ def create_app(workspace, allowed_roots=()):
                    'schema':body.get('schema','legacy'),
                    'annotation_track':body.get('annotation_track','step'),
                    "confirm_existing": body.get("confirm_existing") is True}
+        if body.get('source_ids') is not None:
+            ids = body['source_ids']
+            if not isinstance(ids, list) or not ids or any(not isinstance(i, str) for i in ids):
+                raise EditError('source_ids는 원본 id 문자열 목록이어야 합니다.')
+            options['source_ids'] = list(dict.fromkeys(ids))
         if body.get('rack_calibration') is not None:
             if not isinstance(body['rack_calibration'],dict):
                 raise EditError('rack_calibration은 rack_tags 배열을 포함한 JSON 객체여야 합니다.')

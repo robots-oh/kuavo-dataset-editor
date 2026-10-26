@@ -29,6 +29,31 @@ def signature(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
 
 
+def frozen(name):
+    """Editor files that are never rewritten once written: previous exports' history snapshots.
+
+    events.jsonl is appended only after the episode loop, which first detaches it (see detach)."""
+    return name.startswith('editor/history/') or name == 'editor/events.jsonl'
+
+
+def link_or_copy(source, destination):
+    """Hard link an immutable file (same disk: no bytes copied); copy when linking is impossible."""
+    try:
+        os.link(source, destination)
+    except OSError:
+        shutil.copy2(source, destination)
+    return destination
+
+
+def detach(path):
+    """Give `path` its own inode before writing to it in place, so linked checkpoints/history keep their bytes."""
+    path = Path(path)
+    if path.is_file() and path.stat().st_nlink > 1:
+        temporary = path.with_name(path.name + '.' + uuid4().hex + '.detach')
+        shutil.copy2(path, temporary)
+        temporary.replace(path)
+
+
 def checkpoint_state(job_root):
     path = Path(job_root) / 'export-checkpoint.json'
     if not path.is_file():
@@ -60,7 +85,8 @@ class EpisodeCheckpoint:
                 if name.split('/')[0] in ('meta', 'editor'):
                     dest = folder / 'mutable' / name
                     dest.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(path, dest)
+                    # Large frozen provenance (GBs, grows with every export) is linked, not copied per episode.
+                    (link_or_copy if frozen(name) else shutil.copy2)(path, dest)
         write_json(folder / 'rows.json', rows)
         write_json(folder / 'truncations.json', truncations)
         state = dict(version=1, identity=self.identity, directory=folder.name,

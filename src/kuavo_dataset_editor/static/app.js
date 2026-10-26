@@ -1309,6 +1309,16 @@ action(async () => {
   $('compatibilityNotice').hidden=annotationReady;
   if(!annotationReady) throw Error('화면과 서버 버전이 다릅니다. 진행 중인 작업이 끝나면 에디터 서버를 재시작하고 새로고침하세요. annotation은 그대로 유지됩니다.');
   $("profile").value = JSON.stringify(cfg.bag_profile, null, 2);
+  for (const [stem, profile] of Object.entries(cfg.bag_profiles || {})) {
+    const option = document.createElement("option");
+    option.value = stem;
+    option.textContent = `${stem} · ${profile.name}`;
+    $("profilePick").append(option);
+  }
+  $("profilePick").onchange = () => {
+    const stem = $("profilePick").value;
+    $("profile").value = JSON.stringify(stem ? cfg.bag_profiles[stem] : cfg.bag_profile, null, 2);
+  };
   const ps = await projectList();
   if (ps.length) {
     const pid = localStorage.getItem("editorProject");

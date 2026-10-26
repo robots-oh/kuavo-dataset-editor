@@ -213,6 +213,8 @@ def _write_dataset(project, staging, job_root, progress, transaction):
     columns = sorted({key for row in output_rows for key in row})
     pq.write_table(pa.table({key: [row.get(key) for row in output_rows] for key in columns}), provenance / "frame_mapping.parquet")
     # Events remain sparse; an event is copied only where its source time is retained.
+    from .checkpoints import detach
+    detach(provenance / "events.jsonl")     # linked from the target/checkpoint: append to our own copy
     with (provenance / "events.jsonl").open("a" if append else "w") as output_events:
         for sid, adapter in adapters.items():
             if isinstance(adapter, CatalogSource) and adapter.manifest.get("events"):

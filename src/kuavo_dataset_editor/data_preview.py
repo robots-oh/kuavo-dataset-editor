@@ -15,7 +15,7 @@ from .masking import mask_mapping,REASONS
 
 
 def preview_key(project,target,options):
-    selection=selected_project(project,target,options.get('mode','new'),options.get('annotation_track','step'))
+    selection=selected_project(project,target,options.get('mode','new'),options.get('annotation_track','step'),options.get('source_ids'))
     used={clip['source_id'] for clip in selection['clips']}
     sources=[]
     for source in selection['sources']:
@@ -80,7 +80,7 @@ def _feature_values(adapter,feature,episode,start,end,repairs,source_id,times):
 def build_preview(project,target,options,directory,progress):
     directory=Path(directory); directory.mkdir(parents=True,exist_ok=True)
     key=preview_key(project,target,options)
-    initial=selected_project(project,target,options.get('mode','new'),options.get('annotation_track','step'))
+    initial=selected_project(project,target,options.get('mode','new'),options.get('annotation_track','step'),options.get('source_ids'))
     selection,approved=resolve_quality(initial,options.get('quality'))
     if not approved['ready']: raise EditError('누락 구간 보정/제외를 선택한 뒤 미리보기를 계산하세요.')
     schema=schema_name(options)

@@ -68,7 +68,8 @@ def contract(schema):
                         'placeholder':0,'placeholder_is_command':False},
             'missing_reason':{'dtype':'uint8','codes':REASONS},
             'base_pose_source_codes':{'0':'unavailable','1':'backfilled_before_first_anchor',
-                                      '2':'between_good_anchor_windows','3':'propagated_after_last_anchor'},
+                                      '2':'between_good_anchor_windows','3':'propagated_after_last_anchor',
+                                      '4':'recorded_rack_pose_topic'},
             'sources':{'torso_state':'/sensors_data_raw.joint_data.joint_q[0:4] (rad)',
                        'arms_state':'/sensors_data_raw.joint_data.joint_q[4:18] (rad)',
                        'torso_action':'/joint_cmd.joint_q[0:4] (rad), else /lb_leg_traj.position (deg to rad)',
@@ -117,14 +118,33 @@ def align(entries, targets, size, method, tolerance_s):
     return result
 
 
-def read_recording(path, schema, progress, calibration=None):
+DEFAULT_TOPICS = {'arms':'/kuavo_arm_traj','grip_state':'/leju_claw_state','grip_action':'/leju_claw_command',
+                  'velocity':'/cmd_vel'}
+
+
+def topic_sources(profile):
+    """Command/state topics per sample key; a profile 'wholebody.topics' entry replaces the team default
+    (rwh_auto records continuous helper topics because the team topics are only published while moving)."""
+    return {**DEFAULT_TOPICS,**((profile or {}).get('wholebody') or {}).get('topics',{})}
+
+
+def rack_pose_row(msg):
+    """PoseStamped base_link in rack frame -> [x, y, sin(yaw), cos(yaw)]."""
+    q = msg.pose.orientation
+    yaw = np.arctan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z))
+    return [msg.pose.position.x,msg.pose.position.y,np.sin(yaw),np.cos(yaw)]
+
+
+def read_recording(path, schema, progress, calibration=None, profile=None):
     from .ros1_reader import Ros1Reader
     tf = RecordedTF()
-    samples = {key:[] for key in ('joints','arms','torso','grip_state','grip_action','velocity','odom_clock')}
+    samples = {key:[] for key in ('joints','arms','torso','grip_state','grip_action','velocity','odom_clock','base_pose')}
     detections, calibrations, report = [], [], {'malformed_messages':{},'source_bag':str(path)}
-    topics = {'/sensors_data_raw':('joints','joints'),'/kuavo_arm_traj':('arms','arms'),
-              '/leju_claw_state':('grip_state','grip'),'/leju_claw_command':('grip_action','grip'),
-              '/cmd_vel':('velocity','velocity')}
+    sources = topic_sources(profile)
+    kinds = {'arms':'arms','grip_state':'grip','grip_action':'grip','velocity':'velocity'}
+    topics = {'/sensors_data_raw':('joints','joints'),**{sources[key]:(key,kind) for key,kind in kinds.items()}}
+    pose_topic = ((profile or {}).get('wholebody') or {}).get('base_pose_topic')
+    report['topic_sources'] = sources
     with Ros1Reader(path) as reader:
         available = {c.topic for c in reader.connections}
         if '/joint_cmd' in available:
@@ -138,6 +158,8 @@ def read_recording(path, schema, progress, calibration=None):
             topics[torso_topic] = ('torso',torso_kind)
         tag_topic = '/rwh/tag_detections' if '/rwh/tag_detections' in available else '/tag_detections'
         wanted = set(topics) | {'/tf','/tf_static','/odom',tag_topic,'/dataset/base_pose_in_rack/status'}
+        if pose_topic in available:
+            wanted.add(pose_topic)
         connections = [c for c in reader.connections if c.topic in wanted]
         total = max(1,sum(c.msgcount for c in connections))
         for index,(connection,timestamp,raw) in enumerate(reader.messages(connections=connections)):
@@ -158,6 +180,11 @@ def read_recording(path, schema, progress, calibration=None):
                     pass
             elif topic=='/odom':
                 samples['odom_clock'].append((int(timestamp),[stamp_ns(msg.header.stamp)]))
+            elif topic==pose_topic:
+                try:
+                    samples['base_pose'].append((int(timestamp),rack_pose_row(msg)))
+                except (ValueError,AttributeError):
+                    report['malformed_messages'][topic] = report['malformed_messages'].get(topic,0)+1
             else:
                 key,kind = topics[topic]
                 try:
@@ -168,6 +195,11 @@ def read_recording(path, schema, progress, calibration=None):
                     samples[key].append((int(timestamp),np.full(size,np.nan)))
     tf.finalize()
     report['tf_errors'] = tf.errors
+    if samples['base_pose']:
+        # The recorder already published rack->base_link (same rack frame as this schema); no tag reconstruction.
+        report.update(base_pose_source=pose_topic,rack_tags=[],anchor_knots=[],rack_unavailable_reason=2,
+                      reconstruction='recorded_rack_pose_topic')
+        return samples,tf,[],report
     if calibration is not None:
         recorded = calibration.get('rack_tags',calibration.get('tags',[]))
         calibrations = [recorded]+calibrations
@@ -223,7 +255,7 @@ def prepare_project(project, job_root, options, progress):
     from .sources import open_source
     from .quality import resolve_quality, repair_index, corrected_row
     from .repositories import selected_project
-    project = selected_project(project, options.get('_target',''), options.get('mode','new'),options.get('annotation_track','step'))
+    project = selected_project(project, options.get('_target',''), options.get('mode','new'),options.get('annotation_track','step'),options.get('source_ids'))
     selection, approved = resolve_quality(project,options.get('quality'))
     repairs = repair_index(approved)
     result = deepcopy(selection)
@@ -252,12 +284,12 @@ def prepare_project(project, job_root, options, progress):
         report_path = directory/'report.json'
         if not (directory/'manifest.json').exists():
             directory.mkdir(parents=True,exist_ok=True)
-            samples,tf,knots,report = read_recording(path,schema,progress,options.get('rack_calibration'))
+            profile = original.manifest['profile']
+            samples,tf,knots,report = read_recording(path,schema,progress,options.get('rack_calibration'),profile)
             n = original.manifest['episodes'][0]['num_frames']
             with np.load(original.root/original.manifest['time_mapping']) as mapping:
                 times = {k:mapping[k] for k in mapping.files}
             targets = times['bag_time_ns']
-            profile = original.manifest['profile']
             tolerance = profile.get('state_tolerance_s',0.1)
             command_age = profile.get('command_max_age_s',1.0)
             state = np.full((n,24),np.nan,dtype=np.float32)
@@ -276,7 +308,11 @@ def prepare_project(project, job_root, options, progress):
                 query_times[~good] = -1
             else:
                 query_times[:] = -1
-            pose,codes = reconstruct(tf,query_times,knots)
+            if samples['base_pose']:
+                pose = align(samples['base_pose'],targets,4,'nearest',tolerance)
+                codes = np.where(np.isfinite(pose).all(axis=1),4,0).astype(np.uint8)
+            else:
+                pose,codes = reconstruct(tf,query_times,knots)
             state[:,20:24] = pose
             arrays = {'observation.state':state,'provenance.base_pose_source':codes[:,None]}
             if schema==FULL:
@@ -304,13 +340,14 @@ def prepare_project(project, job_root, options, progress):
                         start,end = {'action':(4,18),'action.gripper':(18,20),'action.base':(20,23)}[feature]
                         arrays['action'][frame,start:end] = row[feature]
             available = set(report['available_topics'])
+            topic_of = report['topic_sources']   # not 'used': that name holds the selected source ids
             groups = [('observation.state',0,18,'joints','/sensors_data_raw','nearest',tolerance),
-                      ('observation.state',18,20,'grip_state','/leju_claw_state','nearest',tolerance)]
+                      ('observation.state',18,20,'grip_state',topic_of['grip_state'],'nearest',tolerance)]
             if schema==FULL:
                 groups += [('action',0,4,'torso',report['torso_action_source'],'previous',command_age),
-                           ('action',4,18,'arms','/kuavo_arm_traj','previous',command_age),
-                           ('action',18,20,'grip_action','/leju_claw_command','previous',command_age),
-                           ('action',20,23,'velocity','/cmd_vel','previous',command_age)]
+                           ('action',4,18,'arms',topic_of['arms'],'previous',command_age),
+                           ('action',18,20,'grip_action',topic_of['grip_action'],'previous',command_age),
+                           ('action',20,23,'velocity',topic_of['velocity'],'previous',command_age)]
             for feature in ('observation.state','action') if schema==FULL else ('observation.state',):
                 raw = arrays[feature]
                 filled,valid,reasons = encode_missing(raw)
