@@ -88,6 +88,10 @@ def paths_under(roots):
                        and (parent / name).stat().st_dev == device
                        and not name.startswith(('checkpoint-', 'interrupted-'))
                        and name not in ('.git',)]
+            if 'catalog.json' in names:
+                # Catalog camera trees can contain millions of JPEGs. Nothing
+                # below them is a maintenance target; events are at catalog root.
+                dirs[:] = []
             for name in names:
                 path = parent / name
                 if not path.is_symlink():
