@@ -340,14 +340,14 @@ def prepare_project(project, job_root, options, progress):
                         start,end = {'action':(4,18),'action.gripper':(18,20),'action.base':(20,23)}[feature]
                         arrays['action'][frame,start:end] = row[feature]
             available = set(report['available_topics'])
-            used = report['topic_sources']
+            topic_of = report['topic_sources']   # not 'used': that name holds the selected source ids
             groups = [('observation.state',0,18,'joints','/sensors_data_raw','nearest',tolerance),
-                      ('observation.state',18,20,'grip_state',used['grip_state'],'nearest',tolerance)]
+                      ('observation.state',18,20,'grip_state',topic_of['grip_state'],'nearest',tolerance)]
             if schema==FULL:
                 groups += [('action',0,4,'torso',report['torso_action_source'],'previous',command_age),
-                           ('action',4,18,'arms',used['arms'],'previous',command_age),
-                           ('action',18,20,'grip_action',used['grip_action'],'previous',command_age),
-                           ('action',20,23,'velocity',used['velocity'],'previous',command_age)]
+                           ('action',4,18,'arms',topic_of['arms'],'previous',command_age),
+                           ('action',18,20,'grip_action',topic_of['grip_action'],'previous',command_age),
+                           ('action',20,23,'velocity',topic_of['velocity'],'previous',command_age)]
             for feature in ('observation.state','action') if schema==FULL else ('observation.state',):
                 raw = arrays[feature]
                 filled,valid,reasons = encode_missing(raw)

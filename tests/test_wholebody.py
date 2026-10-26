@@ -194,6 +194,17 @@ def test_rwh_auto_profile_uses_helper_topics_and_recorded_rack_pose(tmp_path):
     assert report['base_pose_source']=='/rwh/capture/base_pose_in_rack'
 
 
+def test_every_selected_recording_is_derived(tmp_path):
+    (tmp_path/'a').mkdir(); (tmp_path/'b').mkdir()
+    first = recording(tmp_path/'a',torso=True,calibration=False,rwh=True)
+    second = recording(tmp_path/'b',torso=True,calibration=False,rwh=True)
+    source = deepcopy(second['sources'][0]); source['source_id'] = 'b'
+    first['sources'].append(source)
+    first = label(first,'b',0,0,5,'align with rack')
+    project,_ = prepare_project(first,tmp_path/'job',{'schema':FULL},lambda *_:None)
+    assert all(s.get('export_derivation') for s in project['sources'])
+
+
 @pytest.mark.skipif(os.environ.get('EDITOR_TEST_EXPORT')!='1',reason='5-frame official export smoke')
 def test_wholebody_official_roundtrip(tmp_path):
     from kuavo_dataset_editor.exporter import export_dataset
