@@ -73,3 +73,17 @@ def test_video_dedup_keeps_content_and_fingerprint_timestamps(tmp_path):
     assert paths[0].stat().st_ino == paths[1].stat().st_ino
     assert paths[2].stat().st_ino != paths[0].stat().st_ino
     assert paths[2].stat().st_mtime_ns == 3000
+
+
+def test_checkpoint_retention_keeps_two_and_latest_pointer_recovers(tmp_path):
+    from kuavo_dataset_editor.checkpoints import EpisodeCheckpoint, checkpoint_state
+    staging, job = tmp_path / 'staging', tmp_path / 'job'
+    (staging / 'meta').mkdir(parents=True); job.mkdir()
+    checkpoint = EpisodeCheckpoint(staging, job, {'x': 1})
+    states = []
+    for index in range(6):
+        (staging / 'meta/info.json').write_text(json.dumps({'episode': index}))
+        states.append(checkpoint.save(index, index * 10, [{'index': index}], [], []))
+    assert {p.name for p in job.glob('checkpoint-*')} == {s['directory'] for s in states[-2:]}
+    assert checkpoint_state(job)['completed_episodes'] == 5
+    assert checkpoint.restore()['rows'] == [{'index': 5}]

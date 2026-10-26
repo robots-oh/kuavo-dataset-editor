@@ -41,9 +41,15 @@ def new_event_chunk(root, append):
     if append:
         for path in dataset_event_files(root):
             if path.parent == root:  # legacy cumulative log, retain bytes exactly
-                destination = root / 'event_chunks' / (uuid4().hex + path.suffix)
+                destination = root / 'event_chunks' / (uuid4().hex + '.jsonl.gz')
                 destination.parent.mkdir(exist_ok=True)
-                path.rename(destination)
+                if path.suffix == '.gz':
+                    path.rename(destination)
+                else:
+                    import shutil
+                    with open_events(path) as source, open_events(destination, 'wt') as dest:
+                        shutil.copyfileobj(source, dest)
+                    path.unlink()  # staging only; the published target/backup is untouched
                 path = destination
             chunks.append(path.relative_to(root).as_posix())
     destination = root / 'event_chunks' / (uuid4().hex + '.jsonl.gz')
