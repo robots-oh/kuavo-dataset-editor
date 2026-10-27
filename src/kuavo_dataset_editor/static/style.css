@@ -476,6 +476,9 @@ hr {
 .source-status--not_started { color: #b0b9c5; background: #303845; }
 .source-status--not_required { color: #d1bddf; background: #3c3048; }
 .source-completion { white-space: nowrap; font-size: 12px; }
+.removed-source { display:flex; align-items:center; gap:8px; margin:8px 0; }
+.removed-source span { min-width:0; overflow-wrap:anywhere; flex:1; font-size:12px; }
+.removed-source button { flex:none; }
 #sourceList {
   max-height: 280px;
   overflow: auto;

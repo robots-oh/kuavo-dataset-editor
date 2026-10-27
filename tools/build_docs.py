@@ -20,7 +20,7 @@ PAGES = [
     ("docs/WHOLEBODY_SCHEMA.md", "Torso·랙 state / action·mask"),
     ("docs/DATA_INSPECTION.md", "Raw bag · Export 미리보기"),
     ("docs/GOAL_ANNOTATIONS.md", "Goal / Step 두 계층 라벨"),
-    ("docs/SOURCE_STATUS.md", "원본별 라벨링 상태"),
+    ("docs/SOURCE_STATUS.md", "원본 상태 · 제거·복원"),
     ("docs/ACTIVITY_VIEW.md", "영상 동작 요약"),
     ("docs/STORAGE.md", "저장 공간 · 무손실 정리"),
     ("docs/HUGGING_FACE.md", "Hugging Face 업로드"),

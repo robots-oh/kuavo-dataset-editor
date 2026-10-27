@@ -7,6 +7,7 @@ import { setupDataInspector } from "./data-inspector.mjs";
 import { setupActivity } from './activity.mjs';
 import { restoreHubTarget } from './hub-target.mjs';
 import { sourceLabelingStatus, matchesSourceFilter } from './source-status.mjs';
+import { isSourceRemoved, activeSources, removedSources, setupSourceRemovalConfirmation } from './source-removal.mjs';
 import {
   defaultTaskRange,
   nextTaskRange,
@@ -16,6 +17,7 @@ import {
   shortRangeWarning,
 } from "./ranges.mjs";
 const $ = (id) => document.getElementById(id);
+const confirmSourceRemoval=setupSourceRemovalConfirmation();
 let project = null,
   sourceId = null,
   episodeId = 0,
@@ -40,6 +42,7 @@ let sourceExportReady=false;
 let revisionHistoryRestore=false;
 let sourceCompletionReady=false;
 let sourceNotRequiredReady=false;
+let sourceRemovalReady=false;
 let sharedPollBusy=false;
 let autoRangeEnd=true;
 let cursorBoundary=null,seekDragging=false,seekAlt=false;
@@ -53,7 +56,7 @@ const colors = [
   "#5c7b40",
 ];
 const copy = (x) => JSON.parse(JSON.stringify(x));
-const source = () => project?.sources.find((s) => s.source_id === sourceId);
+const source = () => project?.sources.find((s) => s.source_id === sourceId && !isSourceRemoved(project,s.source_id));
 const episode = () =>
   source()?.episodes.find((e) => e.episode_id === episodeId);
 const clips = (track=annotationTrack) => trackClips(project,track,sourceId,episodeId);
@@ -211,9 +214,15 @@ function refreshEditor() {
 }
 function restoreRefreshState(state, notify=true) {
   if (!state || state.projectId!==project?.project_id) return;
-  const restoredSource=project.sources.find(s=>s.source_id===state.sourceId);
+  const restoredSource=project.sources.find(s=>s.source_id===state.sourceId && project.source_removed?.[s.source_id]!==true);
   const restoredEpisode=restoredSource?.episodes.find(e=>e.episode_id===state.episodeId);
-  if (state.sourceId && !restoredEpisode) return;
+  if (state.sourceId && !restoredEpisode) {
+    sourceId=project.sources.find(s=>project.source_removed?.[s.source_id]!==true)?.source_id||null;
+    episodeId=project.sources.find(s=>s.source_id===sourceId)?.episodes[0]?.episode_id||0;
+    frame=0;selected=null;playing=false;render();
+    if(notify) toast('이전에 선택한 원본이 제거되어 다른 원본을 열었습니다. 제거한 원본 목록에서 복원할 수 있습니다.');
+    return;
+  }
   if (restoredEpisode) {
     sourceId=state.sourceId;episodeId=state.episodeId;
     frame=Math.max(0,Math.min(restoredEpisode.num_frames-1,Number(state.frame)||0));
@@ -278,7 +287,7 @@ async function loadProject(pid) {
   undo = [];
   redo = [];
   $('sourceStatusFilter').value='all';
-  sourceId = project.sources[0]?.source_id || null;
+  sourceId = activeSources(project)[0]?.source_id || null;
   cursorBoundary=null;
   episodeId = source()?.episodes[0]?.episode_id || 0;
   frame = resumeFrame();
@@ -288,7 +297,7 @@ async function loadProject(pid) {
   await fetchFrame();
 }
 function renderSourceList() {
-  const sources=project?.sources||[],filter=$('sourceStatusFilter').value;
+  const sources=activeSources(project),filter=$('sourceStatusFilter').value;
   const counts={completed:0,in_progress:0,not_started:0,not_required:0};
   for (const s of sources) counts[sourceLabelingStatus(project,s.source_id).key]++;
   $('sourceStatusSummary').textContent=`완료 ${counts.completed} · 라벨링 중 ${counts.in_progress} · 미라벨 ${counts.not_started} · 불필요 ${counts.not_required} / 전체 ${sources.length}개`;
@@ -322,6 +331,19 @@ function renderSourceList() {
     }),
   );
   if (!visible.length) $('sourceList').textContent=sources.length?'해당 상태의 원본이 없습니다.':'원본을 불러오세요.';
+  $('removeSource').disabled=!source() || !sourceRemovalReady;
+  $('removeSource').title=sourceRemovalReady?'원본 bag·캐시·annotation은 보존합니다. 제거한 원본에서 복원할 수 있습니다.':'서버를 업데이트·재시작하면 원본 제거를 사용할 수 있습니다.';
+  const removed=removedSources(project);
+  $('removedSourcesPanel').hidden=!removed.length;
+  $('removedSourcesSummary').textContent=`제거한 원본 ${removed.length}개 · 복원`;
+  $('removedSourceList').replaceChildren(...removed.map(s=>{
+    const row=document.createElement('div');row.className='removed-source';
+    const name=document.createElement('span');name.textContent=(s.original_path||s.path).split('/').pop();
+    const restore=document.createElement('button');restore.textContent='복원';restore.disabled=!sourceRemovalReady;
+    restore.setAttribute('aria-label',`${name.textContent} 복원`);
+    restore.onclick=action(()=>setSourceRemoved(s.source_id,false));
+    row.append(name,restore);return row;
+  }));
   $('sourceCompleted').checked=project?.source_completed?.[sourceId]===true;
   $('sourceCompleted').disabled=!source()||!sourceCompletionReady;
   $('sourceCompleted').title=sourceCompletionReady?'라벨을 수정하면 완료 표시가 자동 해제됩니다.':'추출 작업이 끝난 뒤 에디터를 다시 열면 완료 표시를 저장할 수 있습니다.';
@@ -344,7 +366,12 @@ function render() {
   $("taskReuse").replaceChildren(...taskOptions());
   activityPanel.sourceChanged();
   renderExportSource();
-  if (!source()) return;
+  if (!source()) {
+    for (const image of $('cameras').querySelectorAll('img'))
+      if(image.dataset.url) URL.revokeObjectURL(image.dataset.url);
+    $('cameras').replaceChildren();
+    return;
+  }
   $("sourceTitle").textContent = (source().original_path || source().path)
     .split("/")
     .pop();
@@ -823,9 +850,38 @@ async function history(backward) {
   );
   from.pop();
   to.push(before);
+  if(!source()) {
+    sourceId=activeSources(project)[0]?.source_id||null;
+    episodeId=source()?.episodes[0]?.episode_id||0;frame=resumeFrame();
+  }
   selected = null;
   render();
   await fetchFrame();
+}
+async function setSourceRemoved(sid,removed) {
+  if(!sourceRemovalReady) throw Error('진행 중인 작업이 끝난 뒤 서버를 업데이트·재시작하고 새로고침하세요.');
+  const current=project;
+  const item=current?.sources.find(s=>s.source_id===sid);
+  if(!item) throw Error('현재 프로젝트에 없는 원본입니다.');
+  const name=(item.original_path||item.path).split('/').pop();
+  if(removed && !await confirmSourceRemoval(name)) return;
+  const before=copy(current);
+  const updated=await api(`/api/projects/${current.project_id}/edit`,{
+    operation:'source_removal',source_id:sid,removed,expected_revision:current.revision,
+  });
+  if(project!==current) {toast('원래 프로젝트에 원본 상태를 저장했습니다. 다시 열면 확인할 수 있습니다.');return;}
+  project=updated;undo.push(before);redo=[];
+  if(!source()) {
+    playing=false;selected=null;cursorBoundary=null;
+    sourceId=activeSources(project)[0]?.source_id||null;
+    episodeId=source()?.episodes[0]?.episode_id||0;frame=resumeFrame();
+    render();await fetchFrame();
+  } else {
+    renderSourceList();renderExportSource();
+    $('saveState').textContent=`${project.name} · 저장됨 r${project.revision}`;
+    $('undo').disabled=false;$('redo').disabled=true;
+  }
+  toast(removed?'프로젝트에서 제거했습니다. bag·캐시·annotation은 보존합니다.':'원본을 복원했습니다. 저장된 annotation을 그대로 사용할 수 있습니다.');
 }
 function pos(e) {
   const r = $("timeline").getBoundingClientRect();
@@ -1592,6 +1648,7 @@ $("split").onclick = action(async () => {
 $("undo").onclick = action(() => history(true));
 $("redo").onclick = action(() => history(false));
 $('sourceStatusFilter').onchange=renderSourceList;
+$('removeSource').onclick=action(()=>setSourceRemoved(sourceId,true));
 $('sourceCompleted').onchange=action(async()=>{
   try {await edit('source_completion',{source_id:sourceId,completed:$('sourceCompleted').checked});}
   finally {renderSourceList();}
@@ -1664,9 +1721,10 @@ action(async () => {
   revisionHistoryRestore=cfg.revision_history_restore===true;
   sourceCompletionReady=cfg.source_completion===true;
   sourceNotRequiredReady=cfg.source_not_required===true;
+  sourceRemovalReady=cfg.source_removal===true;
   annotationReady=cfg.annotation_tracks?.includes('goal')===true;
   sourceExportReady=cfg.source_scoped_export===true;
-  $('compatibilityNotice').hidden=annotationReady && sourceNotRequiredReady && sourceExportReady;
+  $('compatibilityNotice').hidden=annotationReady && sourceNotRequiredReady && sourceExportReady && sourceRemovalReady;
   if(!annotationReady) throw Error('화면과 서버 버전이 다릅니다. 진행 중인 작업이 끝나면 에디터 서버를 재시작하고 새로고침하세요. annotation은 그대로 유지됩니다.');
   $("profile").value = JSON.stringify(cfg.bag_profile, null, 2);
   for (const [stem, profile] of Object.entries(cfg.bag_profiles || {})) {
