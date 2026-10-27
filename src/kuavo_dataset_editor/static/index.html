@@ -31,6 +31,12 @@
           <option value="not_required">라벨링 불필요 원본</option>
         </select>
         <div id="sourceList"></div>
+        <button id="removeSource" class="danger" disabled>선택한 원본을 프로젝트에서 제거</button>
+        <details id="removedSourcesPanel" hidden>
+          <summary id="removedSourcesSummary">제거한 원본 0개 · 복원</summary>
+          <p class="muted">목록과 이후 Export에서만 제외합니다. 원본 bag·캐시·annotation은 보존되며 저장 공간은 줄지 않습니다.</p>
+          <div id="removedSourceList"></div>
+        </details>
         <button id="browseLocal">📁 파일·폴더에서 선택…</button>
         <button id="browseSSH">SSH에서 불러오기…</button>
         <div id="selectedImports" class="selected-imports" hidden></div>
@@ -485,6 +491,13 @@
       <button id="downloadFolderMore" hidden>더 보기</button>
       <p class="muted">원하는 폴더가 없으면 서버 실행 시 --allow-root /원하는/데이터폴더로 허용하세요. 브라우저 요청으로 접근 범위를 넓히지는 않습니다.</p>
       <div class="picker-footer"><span>선택한 경로는 해당 workspace에 기억됩니다.</span><button id="downloadFolderUse" class="primary" disabled>이 폴더에 저장</button></div>
+    </dialog>
+    <dialog id="sourceRemovalDialog" aria-labelledby="sourceRemovalTitle">
+      <h2 id="sourceRemovalTitle">원본을 프로젝트에서 제거할까요?</h2>
+      <p id="sourceRemovalName"></p>
+      <p>현재 프로젝트의 일반 목록과 이후 Export에서 제외합니다. <strong>원본 bag·캐시·저장된 Step/Goal annotation은 보존하며 저장 공간은 줄지 않습니다.</strong></p>
+      <p>제거한 원본 목록에서 다시 복원할 수 있습니다. 다른 프로젝트와 이미 시작된 Import/Export는 바뀌지 않습니다. 미적용 입력은 저장되지 않습니다.</p>
+      <div class="row"><button id="sourceRemovalCancel" autofocus>취소</button><button id="sourceRemovalApply" class="danger">제거 · 파일 보존</button></div>
     </dialog>
     <dialog id="qualityReview" aria-labelledby="qualityTitle">
       <div class="picker-header"><h2 id="qualityTitle">Export 전 누락 구간 확인</h2><button id="qualityCancel">취소</button></div>

@@ -9,11 +9,15 @@ from .core import EditError
 
 def exclude_not_required(project):
     """Exclude marked recordings from export, preserving the saved annotations."""
-    skipped = {sid for sid, value in project.get('source_not_required', {}).items() if value is True}
+    not_required = {sid for sid, value in project.get('source_not_required', {}).items() if value is True}
+    removed = {sid for sid, value in project.get('source_removed', {}).items() if value is True}
+    skipped = not_required | removed
     result = deepcopy(project)
     for key in ('clips', 'goals', 'exclusions'):
         result[key] = [c for c in result.get(key, []) if c['source_id'] not in skipped]
-    result['_export_not_required_sources'] = sorted(skipped)
+    result['sources'] = [s for s in result['sources'] if s['source_id'] not in removed]
+    result['_export_not_required_sources'] = sorted(not_required)
+    result['_export_removed_sources'] = sorted(removed)
     return result
 
 
@@ -48,7 +52,7 @@ def select_sources(project, source_ids):
     result['sources'] = [s for s in result['sources'] if s['source_id'] in keep]
     for key in ('clips', 'goals', 'exclusions'):
         result[key] = [c for c in result.get(key, []) if c['source_id'] in keep]
-    for key in ('source_splits', 'source_completed', 'source_not_required'):
+    for key in ('source_splits', 'source_completed', 'source_not_required', 'source_removed'):
         result[key] = {sid: value for sid, value in result.get(key, {}).items() if sid in keep}
     return result
 

@@ -82,7 +82,7 @@ def create_app(workspace, allowed_roots=()):
         return {"workspace": str(workspace), "allowed_roots": [str(r) for r in roots], "bag_profile": profile,
                 "bag_profiles": load_all(),
                 'annotation_tracks':['step','goal'], 'revision_history_restore':True,
-                'source_completion':True, 'source_not_required':True,
+                'source_completion':True, 'source_not_required':True, 'source_removal':True,
                 'source_scoped_export':True, 'shared_project_annotations':True}
 
     @app.get("/api/projects")
@@ -205,6 +205,8 @@ def create_app(workspace, allowed_roots=()):
                     **{sid:previous.get('source_completed',{}).get(sid,False) for sid in source_ids}}
                 after['source_not_required'] = {**before.get('source_not_required',{}),
                     **{sid:previous.get('source_not_required',{}).get(sid,False) for sid in source_ids}}
+                after['source_removed'] = {**before.get('source_removed',{}),
+                    **{sid:previous.get('source_removed',{}).get(sid,False) for sid in source_ids}}
             else:
                 after = body["project"]
                 if after["project_id"] != pid or after["sources"] != before["sources"]:
@@ -228,6 +230,14 @@ def create_app(workspace, allowed_roots=()):
                 p.setdefault('exclusions',[]).append({key:body[key] for key in ('source_id','episode_id','start_frame','end_frame')} | {'id':uuid4().hex})
             elif op=='restore_exclusion':
                 p['exclusions']=[item for item in p.get('exclusions',[]) if item['id']!=body['exclusion_id']]
+            elif op=='source_removal':
+                if not any(s['source_id']==body.get('source_id') for s in p['sources']):
+                    raise EditError('현재 프로젝트에 없는 원본입니다.')
+                if type(body.get('removed')) is not bool:
+                    raise EditError('원본 제거 여부는 true/false로 지정하세요.')
+                # Project-local soft removal. Keep descriptors/labels in place:
+                # shared peers and revision history still reference the cache.
+                p.setdefault('source_removed',{})[body['source_id']] = body['removed']
             elif op=='source_completion':
                 if not any(s['source_id']==body['source_id'] for s in p['sources']):
                     raise EditError('현재 프로젝트에 없는 원본입니다.')
@@ -264,7 +274,8 @@ def create_app(workspace, allowed_roots=()):
 
     @app.get("/api/projects/{pid}/plan")
     def plan(pid: str):
-        return compile_selection(store.get(pid))
+        from .export_scope import exclude_not_required
+        return compile_selection(exclude_not_required(store.get(pid)))
 
     @app.post("/api/projects/{pid}/imports")
     def start_import(pid: str, body: dict):

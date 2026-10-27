@@ -155,6 +155,8 @@ def prepare_export(project, target, options=None):
     selection, quality = resolve_quality(selection, options.get('quality'))
     plan = compile_selection(selection)
     if not plan["runs"]:
+        if selection.get('_export_removed_sources'):
+            raise EditError('프로젝트에서 제거한 원본은 Export에서 제외됩니다. 제거한 원본 목록에서 복원하세요.')
         if selection.get('_export_duplicate_frames'):
             raise EditError('선택 구간은 이미 이 dataset에 Export되었습니다. 중복 추가하지 않습니다. '
                             '기존 라벨을 바꾸려면 기존 dataset을 불러와 수정하세요.')

@@ -4,6 +4,10 @@ Preview images deliberately remain available after Export: open projects still
 depend on them. Never delete the whole `jobs/` directory: imported catalogs and
 their images can live there, alongside disposable export intermediates.
 
+**프로젝트에서 원본 제거는 용량 정리가 아니다.** 복원 가능한 보관이므로 bag·미리보기 캐시·
+annotation·편집 이력은 그대로 남는다. 같은 캐시를 쓰는 다른 프로젝트나 실행 중인 작업도 유지한다.
+제거·복원 방법은 [원본별 상태 안내](SOURCE_STATUS.md#원본을-프로젝트에서-제거복원하기)를 참고한다.
+
 ## New writes
 
 - Import preserves every configured event message in `events.jsonl.gz` (gzip

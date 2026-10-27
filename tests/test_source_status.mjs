@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import {sourceLabelingStatus,matchesSourceFilter} from '../src/kuavo_dataset_editor/static/source-status.mjs';
+import {activeSources,removedSources} from '../src/kuavo_dataset_editor/static/source-removal.mjs';
 
 assert.equal(sourceLabelingStatus(null,'a').key,'not_started');
 assert.equal(sourceLabelingStatus({tasks:{unused:'pick'}},'a').key,'not_started');
@@ -41,9 +42,9 @@ const $=id=>{
     replaceChildren(...items){this.children=items;}});
   return elements.get(id);
 };
-const context=vm.createContext({$,project,sourceLabelingStatus,matchesSourceFilter,
+const context=vm.createContext({$,project,sourceLabelingStatus,matchesSourceFilter,activeSources,removedSources,sourceRemovalReady:true,
   sourceId:'step',frame:125,sourceCompletionReady:true,sourceNotRequiredReady:true,source:()=>project.sources[1],action:fn=>fn,
-  document:{createElement:()=>({dataset:{},append:()=>{}})}});
+  document:{createElement:()=>({dataset:{},append:()=>{},setAttribute:()=>{}})}});
 const ui=fs.readFileSync(new URL('../src/kuavo_dataset_editor/static/app.js',import.meta.url),'utf8');
 vm.runInContext(ui.slice(ui.indexOf('function renderSourceList() {'),ui.indexOf('function render() {')),context);
 for (const filter of ['all','completed','incomplete','in_progress','not_started','not_required']) {
@@ -58,3 +59,11 @@ assert.equal($('sourceNotRequired').checked,true);
 context.sourceNotRequiredReady=false;vm.runInContext('renderSourceList()',context);
 assert.equal($('sourceNotRequired').disabled,true);
 console.log('PASS: the shipped source list renders each filter and counts without changing the selected bag or playback position');
+project.source_removed={step:true};
+$('sourceStatusFilter').value='all';vm.runInContext('renderSourceList()',context);
+assert.equal($('sourceList').children.length,5);
+assert.equal($('removedSourceList').children.length,1);
+assert.equal($('removedSourcesPanel').hidden,false);
+assert.match($('removedSourcesSummary').textContent,/1개/);
+assert.equal(project.clips.some(c=>c.source_id==='step'),true);
+console.log('PASS: removed sources move to the recoverable list without deleting labels');
