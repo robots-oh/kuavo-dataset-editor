@@ -17,6 +17,12 @@ def main():
     serve.add_argument("--allow-root", action="append", default=[])
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
+    remote = sub.add_parser('remote', help='Connect to a remote editor through a local SSH tunnel (no bag download)')
+    remote.add_argument('--host', help='Alias from this PC’s ~/.ssh/config')
+    remote.add_argument('--remote-port', type=int, default=8765)
+    remote.add_argument('--local-port', type=int, default=0, help='0 selects an available port')
+    remote.add_argument('--launcher-port', type=int, default=0)
+    remote.add_argument('--no-browser', action='store_true')
     desktop = sub.add_parser("desktop", help="Open the standalone desktop window with its own local backend")
     desktop.add_argument("--workspace", default="workspace")
     desktop.add_argument("--allow-root", action="append", default=[])
@@ -70,6 +76,9 @@ def main():
             write_shortcut(args.write_shortcut, args.workspace, args.allow_root)
         else:
             launch(args.workspace, args.allow_root)
+    elif args.command == 'remote':
+        from .remote_access import launch
+        launch(args)
     elif args.command == "serve":
         import uvicorn
         from .app import create_app

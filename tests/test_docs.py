@@ -54,3 +54,6 @@ def test_generated_site_links(tmp_path):
     assert '127.0.0.1:8767:127.0.0.1:8765' in guide_html
     assert 'bash setup.sh --headless' in guide_html
     assert 'mailto:paragon7060@hanyang.ac.kr' in parsed[guide].links
+    remote = output / 'docs/REMOTE_EDITOR.html'
+    assert len(parsed[remote].images) == 3
+    assert 'bash remote.sh' in remote.read_text()

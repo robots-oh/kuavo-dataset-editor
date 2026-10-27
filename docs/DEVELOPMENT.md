@@ -48,6 +48,15 @@ approved for public documentation. No bag or full video file is included.
 
 ## Distribution
 
+`remote.sh` / `run.sh remote` run a lightweight local FastAPI launcher from
+`remote_access.py` and `static/remote.html`. This path must not instantiate Store,
+download bags, or install packages on the remote host. Remote tmux startup is an
+explicit opt-in, separate from the read-only `ssh_sources.py` bag helper. Use an
+owned private SSH control socket, loopback listeners, and Host/Origin + per-process
+request-token checks. Disconnect must never stop the remote editor or unrelated
+SSH masters. Test with `tests/test_remote_access.py`; remote-start command tests
+must use disposable paths/fakes, not colleagues' active workspaces.
+
 `pyproject.toml` plus the committed `uv.lock` define reproducible source-checkout
 installation, including the pinned official LeRobot archive and CPU torch packages.
 Use setup.sh (not an unconstrained pip install) for the tested full environment.
