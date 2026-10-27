@@ -10,7 +10,7 @@ if [[ -e "$EDITOR_BUNDLE" ]]; then
 fi
 mkdir -p -- "$(dirname -- "$EDITOR_BUNDLE")"
 EDITOR_ITEMS=()
-for item in README.md pyproject.toml uv.lock .python-version setup.sh run.sh desktop.sh package.sh .gitignore src tests tools docs .github; do
+for item in README.md pyproject.toml uv.lock .python-version setup.sh run.sh desktop.sh remote.sh package.sh .gitignore src tests tools docs .github; do
   if [[ -e "$EDITOR_DIR/$item" ]]; then
     EDITOR_ITEMS+=("$EDITOR_NAME/$item")
   fi

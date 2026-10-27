@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kuavo · 원격 편집기 연결</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#e5eaf1;background:#0c1322;color-scheme:dark}*{box-sizing:border-box}body{margin:0;padding:36px 22px}main{max-width:1000px;margin:auto}.eyebrow{color:#7dd3fc;font-size:13px;letter-spacing:.13em}h1{font-size:32px;margin:10px 0}p{line-height:1.7;color:#b2c0d4}.steps{display:flex;gap:12px;margin:26px 0}.steps span{background:#17263c;border:1px solid #2c405c;border-radius:8px;padding:12px 18px;flex:1}.panel{background:#121e30;border:1px solid #30405a;border-radius:14px;padding:26px;margin-bottom:20px}.grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:18px}label{display:block;font-size:14px;color:#cad5e5;margin-bottom:7px}input,select,textarea{font:inherit;width:100%;padding:11px;border:1px solid #425672;border-radius:7px;background:#0c1626;color:#eef3fb}small{display:block;color:#91a6c0;margin-top:7px;line-height:1.5}button,.open{font:inherit;border:1px solid #425672;border-radius:7px;padding:11px 18px;background:#25384f;color:#f0f6ff;cursor:pointer;display:inline-block;text-decoration:none}button.primary,.open{background:#1672b6;border-color:#248ad0}button:disabled{opacity:.5;cursor:wait}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}.badge{display:inline-block;border-radius:20px;padding:5px 12px;background:#26364b;color:#bbcadc;font-size:13px}.badge.on{background:#134e43;color:#a7f3d0}#message{white-space:pre-wrap;margin-top:16px;line-height:1.6;color:#f7cc87}#result{border-color:#26796b}#result a{margin-top:12px}code{overflow-wrap:anywhere}details{margin-top:22px;border-top:1px solid #30405a;padding-top:18px}summary{cursor:pointer;color:#c7d8ed}details .grid{margin-top:18px;grid-template-columns:1fr 1fr}.check{display:flex;gap:10px;align-items:center;margin-top:18px}.check input{width:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0c1626;padding:14px;border-radius:7px;font-size:12px}#hostHelp a{color:#7dd3fc}[hidden]{display:none!important}@media(max-width:700px){.grid,details .grid{grid-template-columns:1fr}.steps{flex-direction:column}}
+</style></head><body><main>
+<div class="eyebrow">KUAVO DATASET EDITOR · SSH</div><h1>원격 편집기 연결</h1>
+<p>bag은 원격 PC에 그대로 두고, 이 컴퓨터의 브라우저로 편집합니다.<br>Import · 영상 처리 · Export는 원격 PC에서 실행됩니다.</p>
+<div class="steps"><span>1 · SSH 호스트 선택</span><span>2 · 연결 / 필요하면 인증</span><span>3 · 편집기 열기</span></div>
+<section class="panel"><div class="grid">
+<div><label for="host">SSH 호스트</label><select id="host"></select><small id="hostHelp">이 컴퓨터의 ~/.ssh/config에 등록된 별칭</small></div>
+<div><label for="remotePort">원격 서버 포트</label><input id="remotePort" type="number" min="1" max="65535"><small>원격 serve의 --port 값</small></div>
+<div><label for="localPort">로컬 포트</label><input id="localPort" type="number" min="0" max="65535"><small>0 = 빈 포트 자동 선택</small></div></div>
+<details><summary>서버가 꺼져 있나요? 원격 tmux 시작 설정</summary>
+<p>먼저 원격 PC에 편집기를 설치해야 합니다. 아래 선택은 설치·업데이트를 하지 않습니다. 이미 실행 중인 서버는 재사용하고 다른 서버를 종료하지 않습니다.</p>
+<label class="check"><input id="startServer" type="checkbox">연결할 때, 꺼져 있는 원격 서버를 tmux로 시작</label>
+<div class="grid"><div><label for="repo">원격 편집기 설치 경로</label><input id="repo" placeholder="/home/user/kuavo-dataset-editor"></div>
+<div><label for="workspace">원격 workspace</label><input id="workspace" placeholder="/data/editor-workspace"></div>
+<div><label for="roots">원격 bag 허용 폴더 (줄마다 하나)</label><textarea id="roots" placeholder="/data/rosbags" rows="2"></textarea></div>
+<div><label for="session">tmux 세션 이름</label><input id="session" value="dataset-editor"></div></div>
+</details>
+<div class="actions"><button class="primary" id="connect">연결</button><button id="authenticate">SSH 인증 터미널</button><button id="disconnect">연결 끊기</button></div>
+<div id="message" role="status" aria-live="polite"></div>
+<details id="authDetails"><summary>인증 터미널이 열리지 않을 때: 명령 복사</summary><p>이 컴퓨터의 터미널에서 실행하고 비밀번호/호스트 키를 확인하세요. 인증 후 이 화면의 연결을 누르세요. 비밀번호는 편집기에 입력하지 않습니다. 인증 터미널은 연결 중 열어두세요.</p><pre id="authCommand">먼저 호스트를 선택하고 연결을 누르세요.</pre><button id="copy">인증 명령 복사</button></details>
+</section>
+<section class="panel" id="result" hidden><span class="badge on">SSH 터널 연결됨</span><h2>원격 편집기가 준비되었습니다</h2><p id="destination"></p><code id="url"></code><br><a class="open" id="open" target="_blank" rel="noopener">편집기 열기 ↗</a></section>
+<section class="panel"><span class="badge" id="state">연결 대기</span><p>이 화면을 닫아도 런처 프로세스가 실행 중이면 터널은 유지됩니다. 런처를 Ctrl+C로 종료하거나 연결을 끊어도 <strong>원격 서버와 Export는 계속 실행</strong>됩니다.</p><small>같은 workspace를 여러 사람이 동시에 수정하면 최신 저장이 반영될 수 있습니다. 작업 담당자를 나누세요. 작업 경로는 모두 원격 PC 기준이며, bag을 노트북으로 복사하지 않습니다.</small></section>
+</main><script>
+const initial=__BOOTSTRAP__;const $=id=>document.getElementById(id);let busy=false;
+$('remotePort').value=initial.remote_port;$('localPort').value=initial.local_port;
+function show(c){$('result').hidden=!c.connected;$('state').textContent=c.connected?'연결 중':c.authenticated?'SSH 인증 완료 · 연결을 누르세요':'연결 대기';$('authCommand').textContent=c.auth_command||'먼저 호스트를 선택하고 연결을 누르세요.';if(c.connected){$('destination').textContent=`${c.host} · workspace: ${c.workspace}`;$('url').textContent=c.url;$('open').href=c.url;}}
+async function act(path,body){if(busy)return;busy=true;document.querySelectorAll('.actions button').forEach(b=>b.disabled=true);$('message').textContent='처리 중… (SSH 연결은 잠시 걸릴 수 있습니다)';try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Launcher-Token':initial.token},body:JSON.stringify(body)});const v=await r.json();if(!r.ok){if(v.connection)show(v.connection);throw Error(v.detail||'연결하지 못했습니다.');}show(v);$('message').textContent=path.endsWith('authenticate')?'SSH 터미널에서 인증한 후 연결을 누르세요.':v.connected?'연결되었습니다. 아래 「편집기 열기」를 누르세요.':'터널을 끊었습니다. 원격 서버와 작업은 계속 실행됩니다.';}catch(e){$('message').textContent=e.message;}finally{busy=false;document.querySelectorAll('.actions button').forEach(b=>b.disabled=false);}}
+$('connect').onclick=()=>{const p={host:$('host').value,remote_port:$('remotePort').value,local_port:$('localPort').value};if($('startServer').checked)p.start={repo:$('repo').value.trim(),workspace:$('workspace').value.trim(),roots:$('roots').value.split('\n').map(s=>s.trim()).filter(Boolean),session:$('session').value.trim()};act('/api/connect',p);};
+$('authenticate').onclick=()=>act('/api/authenticate',{host:$('host').value});$('disconnect').onclick=()=>act('/api/disconnect',{});
+$('copy').onclick=async()=>{try{await navigator.clipboard.writeText($('authCommand').textContent);$('message').textContent='인증 명령을 복사했습니다.';}catch(e){$('message').textContent='명령을 직접 선택해서 복사하세요.';}};
+fetch('/api/info').then(r=>r.json()).then(v=>{for(const h of v.hosts){const o=document.createElement('option');o.value=o.textContent=h;$('host').append(o);}if(initial.host&&v.hosts.includes(initial.host))$('host').value=initial.host;if(!v.hosts.length){$('hostHelp').textContent='등록된 호스트가 없습니다. 로컬 ~/.ssh/config에 Host 별칭을 추가하고 새로고침하세요.';$('connect').disabled=$('authenticate').disabled=true;}show(v.connection);}).catch(e=>{$('message').textContent=e.message;});
+</script></body></html>
