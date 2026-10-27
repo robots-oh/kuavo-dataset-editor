@@ -9,7 +9,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .core import EditError, compile_selection
+from .core import EditError, compile_selection, run_output_time
 from .integrations.lerobot import LeRobotBackend
 from .sources import CatalogSource, fingerprint, open_source, write_json
 
@@ -104,6 +104,7 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                 "start_trimmed": run["start_frame"] != 0,
                                 "end_trimmed": run["end_frame"] != original_episode["num_frames"],
                                 "terminal_features": "preserved_without_inventing_success"})
+            episode_frame = 0                       # contiguous even when the run joins across a dropped gap
             requests = ((clip, source_frame) for clip in run['clips']
                         for source_frame in range(clip['start_frame'], clip['end_frame']))
             def read_frame(request):
@@ -118,7 +119,8 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                     frame_repairs = repairs.get((run['source_id'], run['episode_id'], source_frame), [])
                     frame["task"] = clip["task"]
                     writer.add_frame(frame)
-                    out_frame = source_frame-run["start_frame"]
+                    out_frame = episode_frame
+                    episode_frame += 1
                     output_rows.append({"episode_index": out_episode, "frame_index": out_frame,
                                         "index": base_frames + finished, "source_id": run["source_id"],
                                         "source_episode": run["episode_id"], "source_frame": source_frame,
@@ -233,10 +235,11 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                     t = event["output_time_s"] if dataset_coordinates else event["source_time_s"]
                     for index, run in enumerate(plan["runs"], start=base_episodes):
                         if (run["source_id"] == sid and
-                            (not dataset_coordinates or event["episode_index"] == run["episode_id"]) and
-                            run["start_frame"]/plan["fps"] <= t < run["end_frame"]/plan["fps"]):
-                            mapped = {**event, "source_id": sid, "episode_index": index,
-                                      "output_time_s": t-run["start_frame"]/plan["fps"]}
+                            (not dataset_coordinates or event["episode_index"] == run["episode_id"])):
+                            out_t = run_output_time(run, t, plan["fps"])
+                            if out_t is None:
+                                continue
+                            mapped = {**event, "source_id": sid, "episode_index": index, "output_time_s": out_t}
                             output_events.write(json.dumps(mapped, ensure_ascii=False)+"\n")
     write_json(provenance / 'events.index.json', event_index)
     from .masking import finalize_mask_metadata

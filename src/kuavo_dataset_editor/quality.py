@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .core import EditError, compile_selection, subtract
+from .core import EditError, compile_selection, run_segments, subtract
 from .sources import CatalogSource, open_source
 
 
@@ -51,7 +51,8 @@ def _inspect_quality(project):
     selected = {}
     for run in plan['runs']:
         key = run['source_id'], run['episode_id']
-        selected.setdefault(key, []).extend(range(run['start_frame'], run['end_frame']))
+        for a, b in run_segments(run):
+            selected.setdefault(key, []).extend(range(a, b))
     issues, stamps, invalid_total = [], [], 0
     for (sid, episode), frames in selected.items():
         source = sources[sid]

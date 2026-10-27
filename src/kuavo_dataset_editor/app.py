@@ -400,6 +400,15 @@ def create_app(workspace, allowed_roots=()):
         mode = body.get("mode", "new")
         scope = normalize_export_options(body)
         project = select_sources(project, scope.get('source_ids'))
+        if body.get('join_across_gaps') is not None:
+            # Drop short unlabeled gaps inside one recording without starting a new episode (core.compile_selection).
+            if not isinstance(body['join_across_gaps'], bool):
+                raise EditError('join_across_gaps는 true/false 여야 합니다.')
+            gap_s = body.get('join_max_gap_s', 10.0)
+            if isinstance(gap_s, bool) or not isinstance(gap_s, (int, float)) or not 0 < gap_s <= 120:
+                raise EditError('join_max_gap_s는 0 초보다 크고 120 초 이하인 숫자여야 합니다.')
+            project = {**project, 'export': {**(project.get('export') or {}),
+                                             'join_across_gaps': body['join_across_gaps'], 'join_max_gap_s': float(gap_s)}}
         if mode == "new":
             identity = repo_identity(body.get("repo_name") or ('preview-'+pid if preview else ''))
             target = allowed(body.get("target") or (workspace/'.preview-plans'/pid if preview else workspace / "exports" / identity["slug"]))
@@ -412,6 +421,7 @@ def create_app(workspace, allowed_roots=()):
                    'source_ids':scope.get('source_ids'),
                    'schema':body.get('schema','legacy'),
                    'annotation_track':body.get('annotation_track','step'),
+                   'join_across_gaps': (project.get('export') or {}).get('join_across_gaps') is True,
                    "confirm_existing": body.get("confirm_existing") is True}
         if body.get('rack_calibration') is not None:
             if not isinstance(body['rack_calibration'],dict):

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .core import EditError,compile_selection
+from .core import EditError,compile_selection,run_length,run_segments
 from .sources import CatalogSource,open_source,fingerprint,write_json
 from .quality import resolve_quality,repair_index,corrected_row
 from .repositories import selected_project
@@ -99,15 +99,15 @@ def build_preview(project,target,options,directory,progress):
     for sid in sorted({run['source_id'] for run in plan['runs']}):
         source=sources[sid]; adapter=open_source(source); times=_times(adapter)
         runs=[run for run in plan['runs'] if run['source_id']==sid]
-        count=sum(run['end_frame']-run['start_frame'] for run in runs)
+        count=sum(run_length(run) for run in runs)
         features=[]; mapping=mask_mapping(adapter.features,getattr(adapter,'manifest',{}).get('validity_masks'))
         for feature,ft in adapter.features.items():
             if ft['dtype'] in ('image','video'):
                 known=isinstance(adapter,CatalogSource)
                 from .sources import _safe_child
-                paths={value for run in runs for value in adapter.manifest['images'][feature][run['start_frame']:run['end_frame']]} if known else set()
+                paths={value for run in runs for a,b in run_segments(run) for value in adapter.manifest['images'][feature][a:b]} if known else set()
                 present={value:value is not None and _safe_child(adapter.root,value).is_file() for value in paths}
-                available=sum(sum(present[value] for value in adapter.manifest['images'][feature][run['start_frame']:run['end_frame']]) for run in runs) if known else None
+                available=sum(sum(present[value] for value in adapter.manifest['images'][feature][a:b]) for run in runs for a,b in run_segments(run)) if known else None
                 features.append({'feature':feature,'dtype':ft['dtype'],'shape':list(ft['shape']),
                                  'frames':count,'valid_frames':available,'camera':True,
                                  'note':'이미지 파일 존재/승인된 hold 기준; 전체 픽셀 디코딩은 생략' if known else 'LeRobot 영상 metadata 확인; 전체 영상 디코딩은 생략'})
@@ -118,8 +118,8 @@ def build_preview(project,target,options,directory,progress):
                                  'frames':count,'text':True,'note':'문자열 항목: 현재 프레임에서 확인'})
                 continue
             values=[]; masks=[]; reasons=[]
-            for run in runs:
-                args=(run['episode_id'],run['start_frame'],run['end_frame'],active_repairs,sid,times)
+            for run,(seg_a,seg_b) in ((run,seg) for run in runs for seg in run_segments(run)):
+                args=(run['episode_id'],seg_a,seg_b,active_repairs,sid,times)
                 value=_feature_values(adapter,feature,*args)
                 mask_key=mapping.get(feature)
                 mask=_feature_values(adapter,mask_key,*args).astype(bool) if mask_key else np.isfinite(value)
@@ -181,7 +181,7 @@ def preview_row(saved,sid,episode,frame):
             code=int(reasons[i])
             fields.append({**dim,'feature':feature,'value':float(values[i]) if np.isfinite(values[i]) else None,
                            'valid':valid,'reason':code,'reason_name':REASONS.get(code,'unknown')})
-    kept=any(run['source_id']==sid and run['episode_id']==episode and run['start_frame']<=frame<run['end_frame'] for run in saved['plan']['runs'])
+    kept=any(run['source_id']==sid and run['episode_id']==episode and a<=frame<b for run in saved['plan']['runs'] for a,b in run_segments(run))
     selected_clip=next((c for run in saved['plan']['runs'] if run['source_id']==sid and run['episode_id']==episode
                         for c in run['clips'] if c['start_frame']<=frame<c['end_frame']),None)
     return {'source_id':sid,'episode_id':episode,'frame':frame,'time_s':frame/source['fps'],
@@ -204,7 +204,8 @@ def preview_series(saved,sid,episode,feature,index):
     valid=np.broadcast_to(valid,values.shape)
     kept=np.zeros(n,dtype=bool)
     for run in saved['plan']['runs']:
-        if run['source_id']==sid and run['episode_id']==episode: kept[run['start_frame']:run['end_frame']]=True
+        if run['source_id']==sid and run['episode_id']==episode:
+            for a,b in run_segments(run): kept[a:b]=True
     indices=np.unique(np.linspace(0,n-1,min(400,n),dtype=int))
     good=valid[:,index]&kept&np.isfinite(values[:,index])
     breaks=np.cumsum(~good)

@@ -1,6 +1,7 @@
 from copy import deepcopy
 import pytest
-from kuavo_dataset_editor.core import EditError, compile_selection, frame_at, label, new_project, split_clip, subtract
+from kuavo_dataset_editor.core import (EditError, compile_selection, frame_at, label, new_project, run_output_time,
+                                     run_segments, split_clip, subtract)
 from kuavo_dataset_editor.store import Store
 
 
@@ -69,3 +70,24 @@ def test_short_annotations_warn_without_changing_selection():
     assert p == before
     assert plan["kept_frames"] == 30 and plan["num_episodes"] == 1
     assert [(w["task"], w["frames"]) for w in plan["short_annotations"]] == [("one-frame", 1), ("short", 14)]
+
+
+def test_join_across_short_gaps_keeps_one_episode():
+    """export join_across_gaps: a short unlabeled gap (robot only turning its head) is dropped inside one episode."""
+    p = project()
+    for start, end, task in [(60, 300, "approach"), (300, 480, "grasp"), (600, 1050, "carry")]:
+        p = label(p, "a", 0, start, end, task)
+    assert compile_selection(p)["num_episodes"] == 2                          # default unchanged: gap splits
+    p["export"]["join_across_gaps"] = True                                     # 120-frame gap = 4 s <= 10 s
+    plan = compile_selection(p)
+    assert (plan["num_episodes"], plan["kept_frames"], plan["dropped_frames"]) == (1, 870, 330)
+    run = plan["runs"][0]
+    assert run_segments(run) == [[60, 480], [600, 1050]] and run["joined_gaps"] == [[480, 600]]
+    assert [c["task"] for c in run["clips"]] == ["approach", "grasp", "carry"]
+    assert run_output_time(run, 600 / 30, 30) == 420 / 30                     # first kept frame after the gap
+    assert run_output_time(run, 500 / 30, 30) is None                         # inside the dropped gap
+    p["export"]["join_max_gap_s"] = 3.0                                       # gap longer than the limit still splits
+    assert compile_selection(p)["num_episodes"] == 2
+    p["export"]["join_max_gap_s"] = 10.0
+    p["clips"][-1]["new_episode"] = True                                      # explicit new episode always splits
+    assert compile_selection(p)["num_episodes"] == 2

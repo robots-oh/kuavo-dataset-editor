@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .core import EditError, compile_selection
+from .core import EditError, compile_selection, run_segments
 from .sources import CatalogSource, fingerprint, write_json
 from .recorded_tf import RecordedTF, stamp_ns
 from .rack_reconstruction import candidates, anchor_knots, reconstruct, compact_detections
@@ -392,13 +392,14 @@ def prepare_project(project, job_root, options, progress):
                 mask_key = 'validity.'+feature
                 if mask_key not in adapter.arrays:
                     continue
-                valid = adapter.arrays[mask_key][run['start_frame']:run['end_frame']]
-                bad = np.flatnonzero(~valid.all(axis=1))
-                if len(bad):
-                    dimensions = np.flatnonzero(~valid.all(axis=0))
-                    missing.append({'feature':feature,'frames':len(bad),
-                                    'first_frame':int(bad[0])+run['start_frame'],
-                                    'names':[adapter.features[feature]['names'][i] for i in dimensions]})
+                for a, b in run_segments(run):
+                    valid = adapter.arrays[mask_key][a:b]
+                    bad = np.flatnonzero(~valid.all(axis=1))
+                    if len(bad):
+                        dimensions = np.flatnonzero(~valid.all(axis=0))
+                        missing.append({'feature':feature,'frames':len(bad),
+                                        'first_frame':int(bad[0])+a,
+                                        'names':[adapter.features[feature]['names'][i] for i in dimensions]})
         if missing:
             write_json(directory/'missing_selected.json',missing)
             progress(0.0,'미기록 값은 유효성 0으로 저장: '+json.dumps(missing,ensure_ascii=False))

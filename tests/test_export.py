@@ -32,6 +32,25 @@ def test_official_writer_round_trip(tmp_path):
     assert all(set(timing['video_frames'].values()) == {10} for timing in report['episode_timings'])
 
 
+@pytest.mark.skipif(os.environ.get("EDITOR_TEST_EXPORT") != "1", reason="small export round trip is opt-in")
+def test_join_across_gaps_round_trip(tmp_path):
+    """The dropped gap frames are not written and the episode's frame_index stays contiguous."""
+    from kuavo_dataset_editor.exporter import export_dataset
+    import pyarrow.dataset as ds
+    p = new_project()
+    p["sources"] = [demo_source(tmp_path / "demo", "a")]
+    p = label(p, "a", 0, 2, 8, "approach")
+    p = label(p, "a", 0, 8, 12, "grasp")
+    p = label(p, "a", 0, 20, 30, "carry")
+    p["export"]["join_across_gaps"] = True
+    result = export_dataset(p, tmp_path / "output", tmp_path / "job", lambda *_: None)
+    assert result["frames"] == 20 and result["episodes"] == 1
+    rows = sorted(ds.dataset(str(tmp_path / "output/data"), format="parquet").to_table().to_pylist(), key=lambda r: r["index"])
+    assert [r["frame_index"] for r in rows] == list(range(20)) and {r["episode_index"] for r in rows} == {0}
+    reopened = LeRobotSource(tmp_path / "output")
+    assert np.allclose(reopened.row(0, 10)["action"], [20/120+0.1, np.sin(20/20)+0.1])     # output frame 10 = source frame 20
+
+
 @pytest.mark.skipif(os.environ.get('EDITOR_TEST_EXPORT') != '1', reason='bounded real episode resume smoke')
 def test_interrupted_export_reuses_completed_episode(tmp_path, monkeypatch):
     import json

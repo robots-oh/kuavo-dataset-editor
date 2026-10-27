@@ -114,6 +114,26 @@ def split_clip(project, clip_id, frame):
     return p
 
 
+def run_segments(run):
+    """Frame ranges [start, end) a run keeps. A run joined across unlabeled gaps (export join_across_gaps) has several;
+    the gap frames are dropped and the episode continues (frame_index stays contiguous)."""
+    return run.get("segments") or [[run["start_frame"], run["end_frame"]]]
+
+
+def run_length(run):
+    return sum(b - a for a, b in run_segments(run))
+
+
+def run_output_time(run, t, fps):
+    """Source time t (s) -> time inside the exported episode, None when t falls in a dropped gap or outside the run."""
+    offset = 0
+    for a, b in run_segments(run):
+        if a / fps <= t < b / fps:
+            return offset / fps + (t - a / fps)
+        offset += b - a
+    return None
+
+
 def compile_selection(project):
     if project.get("format_version") != 1:
         raise EditError("지원하지 않는 프로젝트 버전입니다.")
@@ -131,6 +151,11 @@ def compile_selection(project):
         assignments[identity] = split
     order = {sid: i for i, sid in enumerate(sources)}
     runs, fps_values, identities = [], set(), set()
+    # export join_across_gaps: an unlabeled gap inside one recording (e.g. the robot only turning its head) is dropped
+    # without starting a new episode, if it is at most join_max_gap_s long. new_episode on a clip still splits.
+    settings = project.get("export") or {}
+    join = settings.get("join_across_gaps") is True
+    max_gap_s = float(settings.get("join_max_gap_s", 10.0))
     clips = sorted(project["clips"], key=lambda c: (order.get(c["source_id"], -1), c.get("episode_id", 0), c["start_frame"]))
     previous = None
     for c in clips:
@@ -149,10 +174,17 @@ def compile_selection(project):
             raise EditError("task가 없는 clip입니다.")
         if previous and source_key(previous) == source_key(c) and previous["end_frame"] > start:
             raise EditError("clip이 겹칩니다. 교체하거나 경계를 조절하세요.")
-        if not previous or source_key(previous) != source_key(c) or previous["end_frame"] != start or c.get("new_episode"):
+        same = previous is not None and source_key(previous) == source_key(c) and not c.get("new_episode")
+        gap = start - previous["end_frame"] if same else None
+        if not same or (gap and not (join and gap <= max_gap_s * source["fps"] + 1e-9)):
             runs.append({"source_id": c["source_id"], "episode_id": c.get("episode_id", 0),
-                         "start_frame": start, "end_frame": end, "clips": [],
+                         "start_frame": start, "end_frame": end, "clips": [], "segments": [[start, end]],
                          "split": project.get("source_splits", {}).get(c["source_id"], "unspecified")})
+        elif gap:
+            runs[-1]["segments"].append([start, end])
+            runs[-1].setdefault("joined_gaps", []).append([previous["end_frame"], start])
+        else:
+            runs[-1]["segments"][-1][1] = end
         runs[-1]["end_frame"] = end
         runs[-1]["clips"].append({**deepcopy(c), "task": task})
         fps_values.add(source["fps"])
@@ -170,7 +202,7 @@ def compile_selection(project):
                                           "episode_id": c.get("episode_id", 0),
                                           "start_frame": c["start_frame"], "end_frame": c["end_frame"],
                                           "frames": frames, "duration_s": duration, "task": c["task"]})
-    kept = sum(r["end_frame"] - r["start_frame"] for r in runs)
+    kept = sum(run_length(r) for r in runs)
     total = sum(e["num_frames"] for s in sources.values() for e in s["episodes"])
     return {"runs": runs, "num_episodes": len(runs), "kept_frames": kept,
             "dropped_frames": total - kept, "fps": next(iter(fps_values), None),
