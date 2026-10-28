@@ -168,7 +168,9 @@ class CatalogSource:
 
     def descriptor(self, sid):
         from copy import deepcopy
-        return {**deepcopy(self.manifest), "source_id": sid, "kind": "catalog", "path": str(self.root)}
+        # Per-frame references belong in the catalog, not every job/project poll.
+        return {**deepcopy({k: v for k, v in self.manifest.items() if k != 'images'}),
+                "source_id": sid, "kind": "catalog", "path": str(self.root)}
 
     def row(self, episode_id, frame, cameras=True, camera_key=None, validate=True):
         if episode_id != 0 or not 0 <= frame < self.manifest["episodes"][0]["num_frames"]:
@@ -182,7 +184,8 @@ class CatalogSource:
                     relative = self.manifest["images"][key][frame]
                     if relative is None:
                         raise ValueError(f"{key} frame {frame}: 영상 누락. 해당 구간 제외 또는 입력 profile을 확인하세요.")
-                    with Image.open(_safe_child(self.root, relative)) as image:
+                    from .image_store import open_image
+                    with open_image(self.root, relative) as image:
                         result[key] = np.array(image.convert('RGB'))
             else:
                 value = np.asarray(self.arrays[key][frame]).reshape(ft["shape"])

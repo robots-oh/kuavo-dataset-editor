@@ -43,6 +43,7 @@ let revisionHistoryRestore=false;
 let sourceCompletionReady=false;
 let sourceNotRequiredReady=false;
 let sourceRemovalReady=false;
+let incrementalImportReady=false;
 let sharedPollBusy=false;
 let autoRangeEnd=true;
 let cursorBoundary=null,seekDragging=false,seekAlt=false;
@@ -639,6 +640,7 @@ async function fetchFrame() {
     f = frame,
     s = sourceId,
     e = episodeId,
+    playback = playing,
     pid = project.project_id;
   try {
     await Promise.all(
@@ -647,7 +649,7 @@ async function fetchFrame() {
           camera = el.dataset.camera;
         try {
           const r = await fetch(
-            `/api/projects/${pid}/frame/${s}/${e}/${f}?camera=${encodeURIComponent(camera)}`,
+            `/api/projects/${pid}/frame/${s}/${e}/${f}?camera=${encodeURIComponent(camera)}&playback=${playback}`,
           );
           if (!r.ok) throw Error(await r.text());
           const url = URL.createObjectURL(await r.blob());
@@ -680,7 +682,7 @@ async function fetchFrame() {
     previewBusy = false;
     if (
       source() &&
-      (token !== drawToken || frame !== f || sourceId !== s || episodeId !== e)
+      (token !== drawToken || frame !== f || sourceId !== s || episodeId !== e || playback !== playing)
     )
       fetchFrame();
   }
@@ -704,6 +706,7 @@ function togglePlay() {
   playOrigin = frame;
   renderClock();
   if (playing) requestAnimationFrame(tick);
+  else fetchFrame(); // Replace the lightweight playing image with a sharp still.
 }
 function tick(now) {
   if (!playing) return;
@@ -1025,7 +1028,10 @@ function jobDate(seconds) {
   return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second} KST`;
 }
 function jobOrder(job) {return Number(job.result?.published_at)||Number(job.created)||0;}
+let jobPollPending = false;
 async function pollJobs() {
+  if (jobPollPending) return;
+  jobPollPending = true;
   try {
     const jobs = (await api("/api/jobs")).filter(
       (j) => !j.project_id || j.project_id === project?.project_id
@@ -1128,8 +1134,21 @@ async function pollJobs() {
         }
         const imported =
           j.result?.sources || (j.result?.source_id ? [j.result] : []);
+        const reusedCount = imported.filter(item => item.import_cache?.reused).length;
+        if (reusedCount) {
+          const note = document.createElement('p');
+          note.textContent = `정상 캐시 재사용 ${reusedCount}개 · 이미지 재추출 없음`;
+          el.append(note);
+        }
+        if (imported.some(item => item.preparation?.events === 'on_export')) {
+          const note = document.createElement('p');
+          note.className = 'muted';
+          note.textContent = '영상·수치 준비 완료. 이벤트는 Export 때 준비하므로 원본 bag을 삭제/이동하지 마세요.';
+          el.append(note);
+        }
         if (
-          ["completed", "cancelled", "failed"].includes(j.status) &&
+          (["completed", "cancelled", "failed"].includes(j.status) ||
+           (j.status === 'running' && incrementalImportReady)) &&
           imported.length &&
           project &&
           imported.some(
@@ -1139,17 +1158,18 @@ async function pollJobs() {
         ) {
           const b = document.createElement("button");
           b.textContent =
-            imported.length === 1
+            j.status === 'running' ? '준비된 원본 먼저 편집 (나머지 Import 계속)' : imported.length === 1
               ? "현재 프로젝트에 추가"
               : `${imported.length}개 원본을 현재 프로젝트에 추가`;
           b.onclick = action(async () => {
+            const firstNew = imported.find(item => !project.sources.some(s => s.source_id === item.source_id));
             project = await api(
               `/api/projects/${project.project_id}/attach/${j.id}`,
               { expected_revision: project.revision },
             );
             undo = [];
             redo = [];
-            sourceId = imported[0].source_id;
+            sourceId = (firstNew || imported[0]).source_id;
             episodeId = source().episodes[0].episode_id;
             frame = 0;
             cursorBoundary=null;
@@ -1320,6 +1340,8 @@ async function pollJobs() {
     dataInspector.observeJobs(jobs);
   } catch (e) {
     console.warn(e);
+  } finally {
+    jobPollPending = false;
   }
 }
 const reviewQuality = setupQualityReview();
@@ -1722,6 +1744,7 @@ action(async () => {
   sourceCompletionReady=cfg.source_completion===true;
   sourceNotRequiredReady=cfg.source_not_required===true;
   sourceRemovalReady=cfg.source_removal===true;
+  incrementalImportReady=cfg.incremental_import_attach===true;
   annotationReady=cfg.annotation_tracks?.includes('goal')===true;
   sourceExportReady=cfg.source_scoped_export===true;
   $('compatibilityNotice').hidden=annotationReady && sourceNotRequiredReady && sourceExportReady && sourceRemovalReady;

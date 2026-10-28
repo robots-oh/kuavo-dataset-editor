@@ -27,6 +27,11 @@ Explicit local append/replace publishes with a recoverable backup of the old tar
 | `ssh_sources.py` | Existing OpenSSH aliases, read-only remote helper, resumable verified local downloads |
 | `rsync_transfer.py` | Optional protected-argument rsync-over-SSH transport with SHA-256 verification; no remote mutation |
 | `bag.py`, `ros1_reader.py` | ROS1 import and manufacturer message compatibility |
+| `import_cache.py` | Versioned complete catalog reuse, legacy adoption, per-key advisory locking; no annotation sharing |
+| `image_store.py` | Lossless compressed image packs with bounds-checked random access; legacy paths remain readable |
+| `source_events.py` | Deferred bag event decoding at Export plus legacy JSON event compatibility |
+| `bag_index.py` | Bounded RAM-only immutable index snapshots, independent reader handles and binary-searched time windows |
+| `frame_preview.py` | Size-capped JPEG pass-through, lightweight playing previews, sharp stills and bounded RAM-only preview cache |
 | `profiles/` | Robot-specific topic, units, sampling, feature mappings |
 | `exporter.py` | Official LeRobot writer, new output, provenance, small reload |
 | `export_runtime.py` | CPU-aware bounded ordered decode prefetch and encoder queue/thread settings |
@@ -62,6 +67,10 @@ projects between PCs, preserve those paths or re-register the sources.
 - Optional feature gaps use validity masks, not fabricated measurements.
 - Required numeric gaps must be excluded or resolved through the input profile.
 - Tag/TF/session events remain sparse provenance annotations.
+- New imports retain events in the original bag; JSON decoding is deferred until
+  Export. Rack reconstruction still uses the full recording, not only labeled clips.
+- Finished bag catalogs are published one at a time and can be attached while
+  other bags in the same batch are running; partial catalogs are never attached.
 - Train/validation/test assignment is by original recording, not arbitrary clips.
 - A policy-specific combined arm/gripper/base vector is a separate training adapter.
 - Hub publication syncs a complete local snapshot, not a remote episode merge; local editor sidecars stay private.

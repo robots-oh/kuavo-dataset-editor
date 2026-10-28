@@ -257,8 +257,14 @@ Bag은 rosbags가 파일 안의 message definition을 읽으므로 `kuavo_msgs`�
 ROS1의 `kError` 같은 소문자 상수를 사용하는 제조사 메시지도 로컬 어댑터에서 처리한다.
 파싱 시 상수 이름만 정규화하고 원래 이름으로 복원해 MD5를 확인하므로 bag이나 on-wire 필드를 바꾸지 않는다.
 import는 압축 RGB의 JPEG/PNG 원본 bytes를 그대로 보존하고, raw RGB만 PNG로 저장한다.
-mmap용 숫자 배열도 별도 작업 cache에 생성한다. 원본보다 cache가 커질 수 있다.
-큰 bag은 로컬 여유 공간을 확보하고 필요한 파일부터 불러오는 것이 좋다.
+새 Import는 프레임별 이미지 파일 대신 **카메라별 `.frames` 묶음**과 mmap 숫자 배열을 저장한다.
+프레임 삭제·JPEG 재압축은 하지 않으며 기존 개별 이미지 캐시도 계속 읽는다.
+같은 workspace에서 원본 경로·size/mtime fingerprint·profile·호환 버전이 같은 정상 캐시는 재사용한다.
+프로젝트와 annotation은 별도다. 캐시 재사용이 다른 프로젝트의 라벨을 가져오거나 기존 라벨을 덮어쓰지는 않는다.
+여러 bag 중 하나가 준비되면 **준비된 원본 먼저 편집 (나머지 Import 계속)**으로 먼저 편집할 수 있다.
+TF·VR 이벤트의 JSON 변환은 Export 때로 미룬다. **원본 bag을 삭제/이동하지 않는다.**
+랙 역산은 계속 전체 bag의 TF·odom·마커 관측을 사용한다. 자세한 조건·저장 위치·업데이트 주의점은
+[Import 처리와 캐시 재사용](docs/DATA_IMPORT.md#import-처리와-캐시-재사용)을 참고한다.
 
 ## 출력과 원본 보존
 

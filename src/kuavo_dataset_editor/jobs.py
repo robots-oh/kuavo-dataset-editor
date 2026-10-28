@@ -9,6 +9,8 @@ import time
 import traceback
 from pathlib import Path
 from uuid import uuid4
+from collections import OrderedDict
+from copy import deepcopy
 
 from .sources import LeRobotSource, demo_source, write_json
 from .core import EditError
@@ -21,6 +23,10 @@ class Cancelled(Exception):
 def import_one(path, directory, source_id, profile, progress):
     path = Path(path).expanduser().resolve()
     if path.is_file() and path.suffix.lower() == ".bag":
+        from .import_cache import cache_for
+        cache = cache_for(directory)
+        if cache is not None:
+            return cache.obtain(path, profile, source_id, progress)
         from .bag import import_bag
         return import_bag(path, directory, source_id, profile, progress)
     return LeRobotSource(path).descriptor(source_id)
@@ -141,12 +147,55 @@ def atomic_json(path, value):
     temporary.replace(path)
 
 
+def result_summary(result):
+    """Only immutable references needed by polling; full results live separately."""
+    def source(value):
+        return {k: v for k, v in value.items() if k in
+                ('source_id', 'kind', 'path', 'original_path', 'episodes', 'import_cache', 'preparation')}
+    if result.get('source_id'):
+        return source(result)
+    if 'sources' in result:
+        return {**{k: v for k, v in result.items() if k != 'sources'},
+                'sources': [source(s) for s in result['sources']]}
+    return result
+
+
+def publish_result(directory, state, result):
+    # Once per completed bag/final result, never on every progress tick.
+    atomic_json(directory / 'result.json', result)
+    state.update(result_file='result.json', result=result_summary(result))
+
+
+class MetadataCache:
+    """Bounded summaries keyed by file identity; never retain large requests."""
+    def __init__(self, limit=4096):
+        self.values, self.limit, self.lock = OrderedDict(), limit, threading.RLock()
+
+    def read(self, path, summarize):
+        from .sources import file_stamp
+        key = str(path)
+        stamp = file_stamp(path)
+        with self.lock:
+            item = self.values.get(key)
+            if item and item[0] == stamp:
+                self.values.move_to_end(key)
+                return deepcopy(item[1])
+        value = summarize(json.loads(path.read_text()))
+        with self.lock:
+            self.values[key] = (stamp, deepcopy(value))
+            self.values.move_to_end(key)
+            while len(self.values) > self.limit:
+                self.values.popitem(last=False)
+        return value
+
+
 class JobManager:
     def __init__(self, root):
         self.root = Path(root) / "jobs"
         self.root.mkdir(parents=True, exist_ok=True)
         self.processes = {}
         self.lock = threading.Lock()
+        self.metadata = MetadataCache()
 
     def start(self, kind, payload):
         jid = uuid4().hex
@@ -191,28 +240,39 @@ class JobManager:
             self._spawn(jid, directory)
         return self.get(jid)
 
-    def get(self, jid):
+    def get(self, jid, details=True):
         if len(jid) != 32 or not all(c in "0123456789abcdef" for c in jid):
             raise KeyError(jid)
         directory = self.root / jid
         if not directory.exists():
             raise KeyError(jid)
-        status = json.loads((directory / "status.json").read_text())
-        process = self.processes.get(jid)
-        if process:
-            exit_code = process.poll()
-            alive = exit_code is None
-        else:
-            process_file = directory / "process.json"
-            pid = status.get("pid") or (json.loads(process_file.read_text())["pid"] if process_file.exists() else None)
-            # Reconnected workers must identify this exact job in their live command line.
-            try:
-                alive = bool(pid and str(directory).encode() in Path(f"/proc/{pid}/cmdline").read_bytes())
-            except OSError:
-                alive = False
-        if status["status"] in ("running", "queued") and not alive:
-            status.update(status="failed", error="worker가 종료되었습니다. worker.log를 확인하세요.")
-            atomic_json(directory / "status.json", status)
+        def summarize(value):
+            if 'result' in value:
+                value['result'] = result_summary(value['result'])
+            return value
+        status = (json.loads((directory / "status.json").read_text()) if details else
+                  self.metadata.read(directory / 'status.json', summarize))
+        alive = True
+        if status['status'] in ('running', 'queued'):
+            process = self.processes.get(jid)
+            if process:
+                alive = process.poll() is None
+            else:
+                process_file = directory / "process.json"
+                pid = status.get("pid") or (json.loads(process_file.read_text())["pid"] if process_file.exists() else None)
+                # Reconnected workers must identify this exact job in their live command line.
+                try:
+                    alive = bool(pid and str(directory).encode() in Path(f"/proc/{pid}/cmdline").read_bytes())
+                except OSError:
+                    alive = False
+        if not alive:
+            # Do not replace a legacy full result with a polling-only summary.
+            full = json.loads((directory / 'status.json').read_text())
+            # The worker may have published completion between our read/poll.
+            if full['status'] in ('running', 'queued'):
+                full.update(status='failed', error='worker가 종료되었습니다. worker.log를 확인하세요.')
+                atomic_json(directory / 'status.json', full)
+            status = full if details else summarize(full)
         if status['kind'] == 'export':
             from .checkpoints import checkpoint_state
             checkpoint = checkpoint_state(directory)
@@ -220,10 +280,26 @@ class JobManager:
                                     if checkpoint else None)
             status['resumable'] = bool(checkpoint and status['status'] in ('failed', 'cancelled')
                                        and not (directory / 'publication.json').exists())
+        if details and status.get('result_file') == 'result.json':
+            status['result'] = json.loads((directory / 'result.json').read_text())
         return status
 
+    def request_meta(self, jid):
+        self._valid_id(jid)
+        def summarize(value):
+            payload = value['payload']
+            return {'project_id': payload.get('project_id') or payload.get('project', {}).get('project_id'),
+                    'item_ids': [s['source_id'] for s in payload.get('items', [])]}
+        return self.metadata.read(self.root / jid / 'request.json', summarize)
+
+    @staticmethod
+    def _valid_id(jid):
+        if len(jid) != 32 or not all(c in '0123456789abcdef' for c in jid):
+            raise KeyError(jid)
+
     def all(self):
-        return sorted([self.get(p.name) for p in self.root.iterdir() if p.is_dir() and (p / "status.json").exists()], key=lambda s: s.get("created", 0), reverse=True)
+        return sorted([self.get(p.name, details=False) for p in self.root.iterdir()
+                       if p.is_dir() and (p / "status.json").exists()], key=lambda s: s.get("created", 0), reverse=True)
 
     def cancel(self, jid):
         status = self.get(jid)
@@ -258,7 +334,7 @@ def worker(directory):
             result = import_one(payload["path"], directory / "source", payload["source_id"], payload["profile"], progress)
         elif request["kind"] in ("import-batch", "ssh-import"):
             def checkpoint(result):
-                state["result"] = result
+                publish_result(directory, state, result)
                 atomic_json(directory / "status.json", state)
             result = import_many(payload, directory, progress, checkpoint)
         elif request['kind']=='export-preview':
@@ -282,7 +358,8 @@ def worker(directory):
                                     sync_existing=payload["sync_existing"], progress=progress)
         else:
             raise ValueError("알 수 없는 작업")
-        state.update(status="completed", progress=1, result=result,
+        publish_result(directory, state, result)
+        state.update(status="completed", progress=1,
                      message={"export": "export 완료", 'export-preview':'Export 데이터 미리보기 준비됨 (변환 파일 생성 전)', "hub-plan": "업로드 미리보기 준비됨 — 아직 전송하지 않았습니다.",
                               "hub-upload": "Hub 업로드 완료"}.get(request["kind"], "가져오기 완료"))
         if request["kind"] in ("import-batch", "ssh-import"):

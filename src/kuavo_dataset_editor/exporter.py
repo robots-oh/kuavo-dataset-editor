@@ -214,30 +214,26 @@ def _write_dataset(project, staging, job_root, progress, transaction):
     columns = sorted({key for row in output_rows for key in row})
     pq.write_table(pa.table({key: [row.get(key) for row in output_rows] for key in columns}), provenance / "frame_mapping.parquet")
     # Events remain sparse; an event is copied only where its source time is retained.
-    from .storage import open_events, dataset_event_files, new_event_chunk
+    from .storage import open_events, new_event_chunk
+    from .source_events import source_events
     chunk, event_index = new_event_chunk(provenance, append)
     with open_events(chunk, "wt") as output_events:
         for sid, adapter in adapters.items():
-            if isinstance(adapter, CatalogSource) and adapter.manifest.get("events"):
-                event_files = [adapter.root / adapter.manifest["events"]]
-                dataset_coordinates = False
-            else:
-                event_files = dataset_event_files(adapter.root / 'editor')
-                dataset_coordinates = True
-            from itertools import chain
-            from contextlib import ExitStack
-            with ExitStack() as stack:
-                streams = [stack.enter_context(open_events(path)) for path in event_files]
-                for line in chain.from_iterable(streams):
-                    event = json.loads(line)
-                    t = event["output_time_s"] if dataset_coordinates else event["source_time_s"]
-                    for index, run in enumerate(plan["runs"], start=base_episodes):
-                        if (run["source_id"] == sid and
-                            (not dataset_coordinates or event["episode_index"] == run["episode_id"]) and
-                            run["start_frame"]/plan["fps"] <= t < run["end_frame"]/plan["fps"]):
-                            mapped = {**event, "source_id": sid, "episode_index": index,
-                                      "output_time_s": t-run["start_frame"]/plan["fps"]}
-                            output_events.write(json.dumps(mapped, ensure_ascii=False)+"\n")
+            progress(0.91, '선택 구간 이벤트 준비 · 새 캐시는 원본 bag에서 필요할 때 변환')
+            source_runs = [(index, run) for index, run in enumerate(plan['runs'], start=base_episodes)
+                           if run['source_id'] == sid]
+            intervals = [(run['start_frame']/plan['fps'], run['end_frame']/plan['fps'])
+                         for _, run in source_runs]
+            for event_count, (event, dataset_coordinates) in enumerate(source_events(adapter, intervals)):
+                if event_count % 1000 == 0:
+                    progress(0.91, f'선택 구간 이벤트 변환 · {event_count:,} messages')
+                t = event["output_time_s"] if dataset_coordinates else event["source_time_s"]
+                for index, run in source_runs:
+                    if ((not dataset_coordinates or event["episode_index"] == run["episode_id"]) and
+                        run["start_frame"]/plan["fps"] <= t < run["end_frame"]/plan["fps"]):
+                        mapped = {**event, "source_id": sid, "episode_index": index,
+                                  "output_time_s": t-run["start_frame"]/plan["fps"]}
+                        output_events.write(json.dumps(mapped, ensure_ascii=False)+"\n")
     write_json(provenance / 'events.index.json', event_index)
     from .masking import finalize_mask_metadata
     progress(0.93,'유효한 값만으로 정규화 통계·누락 요약 저장 (영상 재디코딩 없음)')

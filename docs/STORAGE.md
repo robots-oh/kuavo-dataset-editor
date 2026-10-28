@@ -10,8 +10,16 @@ annotation·편집 이력은 그대로 남는다. 같은 캐시를 쓰는 다른
 
 ## New writes
 
-- Import preserves every configured event message in `events.jsonl.gz` (gzip
-  level 1). No TF downsampling, numeric rounding, or frame removal is involved.
+- New Import stores compressed image bytes in per-camera `.frames` packs and
+  numeric mmap arrays in a versioned shared `import-cache/`. Unchanged complete
+  catalogs can be reused within one workspace; annotations remain project-local.
+- New Import references the original bag for configured events instead of eagerly
+  duplicating every TF/VR message as JSON. Keep the original bag at its recorded
+  path: Export decodes selected provenance intervals on demand. Whole-recording
+  rack reconstruction still reads all relevant observations from the original.
+  Existing `events.jsonl`/`events.jsonl.gz` catalogs remain readable, unchanged.
+- Job progress summaries are separate from full `result.json` files; catalog
+  frame lists are not repeated in new project descriptors or each progress write.
 - Export stores immutable compressed event chunks plus `editor/events.index.json`.
   Append adds one new chunk rather than copying the complete cumulative event log.
   History/checkpoints share immutable chunks with hardlinks when supported; other
@@ -83,6 +91,9 @@ DB backup and one compressed event file at a time. Backup files remain available
 ## Compatibility and recovery
 
 Older editor code cannot read compacted SQLite revisions or event chunk indexes.
+It also cannot read new packed-image catalogs. All servers/workers sharing a
+workspace must be updated together after active jobs finish. Staging an update
+in a separate code directory avoids mixing old servers with newly spawned workers.
 Keep the updated code installed; do not roll back just the Git branch. Before any
 full rollback, stop the servers and retain the compacted workspace. The compressed
 DB rollback copy restores the pre-migration database, but does not undo event-file

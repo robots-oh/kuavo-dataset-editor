@@ -53,6 +53,9 @@ const jobs=[
   {id:'running-a',kind:'export',status:'running',project_id:'a'},
   {id:'failed-b',kind:'export',status:'failed',project_id:'b',error:'failed export'},
   {id:'import-b',kind:'import',status:'completed',project_id:'b'},
+  {id:'import-ready',kind:'import-batch',status:'running',project_id:'a',result:{sources:[
+    {source_id:'ready-a',path:'/cache/a',preparation:{events:'on_export'},import_cache:{reused:true}},
+  ]}},
   {id:'plan-old',kind:'hub-plan',status:'completed',created:published-400,result:hubPlan},
   {id:'upload-old',kind:'hub-upload',status:'completed',created:published-500,result:{repo_id:'team/old',url:'https://huggingface.co/datasets/team/old',commit:'old'}},
   {id:'cancelled-old',kind:'hub-plan',status:'cancelled',created:published-600,message:'old repository preview'},
@@ -66,6 +69,7 @@ const before=JSON.stringify(jobs),requests=[],observed=[];
 let hideHub=false;
 const projectA={project_id:'a',sources:[]};
 const context=vm.createContext({
+  incrementalImportReady:true,
   project:projectA,$:id=>elements.get(id),
   document:{createElement:()=>new Element()},
   api:async(path,body)=>{requests.push([path,body]);return structuredClone(hideHub?jobs.filter(j=>!j.kind.startsWith('hub-')):jobs);},
@@ -140,3 +144,16 @@ assert.equal(hubCancelled.history.hidden,true);
 assert.equal(JSON.stringify(jobs),before,'displaying history must not modify job records');
 assert(requests.every(([path,body])=>path==='/api/jobs' && body===undefined),'history only reads the API');
 console.log('PASS: export and HF histories stay separate, newest first, preserve toggles, and never submit an upload while displaying history');
+
+let finishPoll, readCalls=0;
+context.api=()=>{readCalls++;return new Promise(resolve=>{finishPoll=resolve;});};
+const inFlight=poll();
+await poll();
+assert.equal(readCalls,1,'a slow poll must not overlap with the next timer tick');
+finishPoll([]);await inFlight;
+assert.equal(vm.runInContext('jobPollPending',context),false);
+context.api=async()=>{throw Error('offline');};
+context.console={warn:()=>{}};
+await poll();
+assert.equal(vm.runInContext('jobPollPending',context),false,'errors also release the polling guard');
+console.log('PASS: job polling stays single-flight and recovers after errors');

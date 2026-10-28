@@ -83,6 +83,7 @@ def create_app(workspace, allowed_roots=()):
                 "bag_profiles": load_all(),
                 'annotation_tracks':['step','goal'], 'revision_history_restore':True,
                 'source_completion':True, 'source_not_required':True, 'source_removal':True,
+                'incremental_import_attach':True,
                 'source_scoped_export':True, 'shared_project_annotations':True}
 
     @app.get("/api/projects")
@@ -303,7 +304,7 @@ def create_app(workspace, allowed_roots=()):
         with api_lock:
             job = jobs.get(jid)
             request = json.loads((jobs.root / jid / "request.json").read_text())
-            if job["status"] not in ("completed", "cancelled", "failed") or job["kind"] not in ("demo", "import", "import-batch", "ssh-import") or request["payload"]["project_id"] != pid:
+            if job["status"] not in ("running", "completed", "cancelled", "failed") or job["kind"] not in ("demo", "import", "import-batch", "ssh-import") or request["payload"]["project_id"] != pid:
                 raise EditError("이 프로젝트의 완료된 import 작업이 아닙니다.")
             p = store.get(pid)
             result = job.get("result", {})
@@ -325,17 +326,14 @@ def create_app(workspace, allowed_roots=()):
             return store.save(p, body["expected_revision"])
 
     @app.get("/api/projects/{pid}/frame/{sid}/{episode}/{frame}")
-    def get_frame(pid: str, sid: str, episode: int, frame: int, camera: str):
+    def get_frame(pid: str, sid: str, episode: int, frame: int, camera: str, playback: bool = False):
         source = project_source(pid, sid)
         if camera not in source["cameras"]:
             raise HTTPException(404, "카메라가 없습니다.")
         try:
-            row = adapter(source["path"], source["kind"]).row(episode, frame, camera_key=camera)
-            img = Image.fromarray(row[camera]).convert("RGB")
-            img.thumbnail((960, 540))
-            output = io.BytesIO()
-            img.save(output, "JPEG", quality=82)
-            return Response(output.getvalue(), media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
+            from .frame_preview import jpeg_preview
+            data = jpeg_preview(adapter(source['path'], source['kind']), episode, frame, camera, playback)
+            return Response(data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
         except (ValueError, OSError, KeyError) as exc:
             raise HTTPException(422, str(exc)) from exc
 
@@ -502,18 +500,12 @@ def create_app(workspace, allowed_roots=()):
     def list_jobs():
         result = []
         for job in jobs.all():
-            request = json.loads((jobs.root / job["id"] / "request.json").read_text())
-            payload = request["payload"]
+            meta = jobs.request_meta(job['id'])
             completed = {s["source_id"] for s in job.get("result", {}).get("sources", [])}
             job["retryable"] = (job["kind"] in ("import-batch", "ssh-import")
                 and job["status"] in ("completed", "cancelled", "failed")
-                and any(item["source_id"] not in completed for item in payload.get("items", [])))
-            job["project_id"] = payload.get("project_id") or payload.get("project", {}).get("project_id")
-            if job.get("result", {}).get("source_id"):
-                # Keep polling light; the full catalog is loaded only when attached.
-                job["result"] = {k: v for k, v in job["result"].items() if k in ("source_id", "path", "episodes", "report")}
-            elif "sources" in job.get("result", {}):
-                job["result"]["sources"] = [{k: v for k, v in s.items() if k in ("source_id", "path", "episodes", "report")} for s in job["result"]["sources"]]
+                and any(sid not in completed for sid in meta['item_ids']))
+            job["project_id"] = meta['project_id']
             result.append(job)
         return result
 

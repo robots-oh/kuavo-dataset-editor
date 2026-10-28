@@ -2,6 +2,7 @@
 import io
 import json
 import math
+import time
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 
@@ -10,7 +11,9 @@ from PIL import Image
 from .ros1_reader import Ros1Reader
 
 from .sources import CatalogSource, fingerprint, write_json
-from .storage import open_events
+from .image_store import FramePacks
+
+IMPORT_VERSION = 2
 
 
 def attr(message, path):
@@ -98,15 +101,23 @@ def import_bag(path, root, sid, profile, progress):
         raise ValueError("FPS는 1–120 사이의 정수로 명시하세요.")
     cameras = profile["cameras"]
     signals = profile["signals"]
-    wanted = set(cameras.values()) | {s["topic"] for s in signals} | set(profile.get("event_topics", []))
+    # Events remain in the immutable original bag and are decoded at Export.
+    # Reading every /tf just to render an editing timeline is unnecessary.
+    wanted = set(cameras.values()) | {s["topic"] for s in signals}
     samples = {topic: [] for topic in wanted}
     image_paths, dimensions = {key: [] for key in cameras}, {}
     topic_to_key = {v: k for k, v in cameras.items()}
     errors, counts = [], {}
     initial_fingerprint = fingerprint(path)
-    # Original sparse events, including tag detections, are preserved as messages.
-    with open_events(root / "events.jsonl.gz", "wt") as events, Ros1Reader(path) as reader:
+    timings, started = {}, time.perf_counter()
+    signal_specs = {topic: [s for s in signals if s['topic'] == topic] for topic in wanted}
+    camera_ids = {key: i for i, key in enumerate(cameras)}
+    with FramePacks(root) as packs, Ros1Reader(path) as reader:
+        timings['open_index_s'] = time.perf_counter()-started
+        loop_started = time.perf_counter()
         origin, last = int(reader.start_time), int(reader.end_time)-1
+        event_counts = {topic: sum(c.msgcount for c in reader.connections if c.topic == topic)
+                        for topic in profile.get('event_topics', [])}
         connections = [c for c in reader.connections if c.topic in wanted]
         available = {c.topic for c in connections}
         for key, topic in cameras.items():
@@ -123,9 +134,7 @@ def import_bag(path, root, sid, profile, progress):
             counts[topic] = counts.get(topic, 0)+1
             if topic in topic_to_key:
                 key = topic_to_key[topic]
-                camera_id = list(cameras).index(key)
-                folder = root / f"camera_{camera_id}"
-                folder.mkdir(exist_ok=True)
+                camera_id = camera_ids[key]
                 if hasattr(msg, "format"):
                     compressed = bytes(msg.data)
                     img = Image.open(io.BytesIO(compressed))
@@ -133,33 +142,38 @@ def import_bag(path, root, sid, profile, progress):
                 else:
                     compressed, suffix = None, None
                     img = image_from_message(msg)
-                relative = f"camera_{camera_id}/{len(samples[topic]):08d}.{suffix or 'png'}"
                 shape = [img.height, img.width, 3]
                 if key in dimensions and dimensions[key] != shape:
                     raise ValueError(f"{topic}: 영상 크기가 중간에 변경되었습니다.")
                 dimensions[key] = shape
                 if compressed is not None and suffix:
-                    (root / relative).write_bytes(compressed)
+                    relative = packs.append(camera_id, compressed)
                 else:
-                    img.convert("RGB").save(root / relative, compress_level=1)
+                    encoded = io.BytesIO()
+                    img.convert("RGB").save(encoded, format='PNG', compress_level=1)
+                    relative = packs.append(camera_id, encoded.getvalue())
+                img.close()
                 samples[topic].append((int(stamp), relative))
             else:
-                for spec in (s for s in signals if s["topic"] == topic):
+                for spec in signal_specs[topic]:
                     try:
                         value = signal_value(msg, spec)
                     except (AttributeError, ValueError, IndexError) as exc:
                         raise ValueError(f"{topic} field 매핑을 확인하세요: {exc}") from exc
                     # Per-feature storage handles multiple fields from one topic.
                     samples.setdefault("feature:"+spec["key"], []).append((int(stamp), value))
-                if topic in profile.get("event_topics", []):
-                    events.write(json.dumps({"topic": topic, "bag_time_ns": int(stamp),
-                                              "source_time_s": (stamp-origin)/1e9,
-                                              "message": plain(msg)}, ensure_ascii=False)+"\n")
+        timings['read_images_signals_s'] = time.perf_counter()-loop_started
+    align_started = time.perf_counter()
     n = max(1, math.floor((last-origin)*fps/1e9)+1)
     targets = origin + (np.arange(n, dtype=np.int64)*1_000_000_000 // fps)
     features, arrays, validity_masks, mapping = {}, {}, {}, {"bag_time_ns": targets}
-    report = {"topics": counts, "missing_samples": {}, "max_alignment_error_s": {},
-              "omitted_optional_features": [], "clock": "bag_receipt_time"}
+    report = {"topics": {**{t: n for t, n in event_counts.items() if n}, **counts},
+              "missing_samples": {}, "max_alignment_error_s": {},
+              "omitted_optional_features": [], "clock": "bag_receipt_time",
+              'deferred_event_counts': event_counts, 'events_preparation': 'on_export_from_original_bag',
+              'deferred_event_count_source': 'bag_index', 'deserialized_messages': sum(counts.values()),
+              'image_storage': 'packed-v1', 'stored_image_messages': packs.frames,
+              'stored_image_bytes': packs.bytes, 'timings_s': timings}
     for key, topic in cameras.items():
         entries = samples[topic]
         if not entries:
@@ -203,13 +217,22 @@ def import_bag(path, root, sid, profile, progress):
         report["missing_samples"][key] = int((~valid).sum())
         report["max_alignment_error_s"][key] = float(np.max(abs(times[idx[valid]]-targets[valid]))/1e9) if valid.any() else None
     np.savez(root / "time_mapping.npz", **mapping)
+    timings['align_arrays_s'] = time.perf_counter()-align_started
     progress(0.92, "catalog 저장")
     manifest = {"source_id": sid, "kind": "catalog", "path": str(root), "original_path": str(path),
                 "fingerprint": initial_fingerprint, "fps": fps, "robot_type": "kuavo_5w",
                 "features": features, "cameras": list(cameras), "arrays": arrays, "images": image_paths,
                 "episodes": [{"episode_id": 0, "num_frames": n}], "origin_bag_time_ns": origin,
-                "profile": profile, "report": report, "events": "events.jsonl.gz", "time_mapping": "time_mapping.npz",
+                "profile": profile, "report": report, "time_mapping": "time_mapping.npz",
+                'import_version': IMPORT_VERSION, 'image_storage': 'packed-v1',
+                'events_source': {'kind': 'rosbag', 'topics': [t for t, count in event_counts.items() if count]},
+                'preparation': {'editing': 'ready', 'events': 'on_export'},
                 "validity_masks": validity_masks, "invalid_placeholder": "zero_only_where_validity_is_false"}
+    if fingerprint(path) != initial_fingerprint:
+        raise ValueError('Import 도중 원본 bag이 변경되었습니다. 닫힌 bag을 다시 선택하세요.')
+    timings['total_before_catalog_s'] = time.perf_counter()-started
     write_json(root / "catalog.json", manifest)
     write_json(root / "import_report.json", report)
+    from .import_cache import seal_catalog
+    seal_catalog(root)
     return CatalogSource(root).descriptor(sid)

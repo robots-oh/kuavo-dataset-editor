@@ -36,7 +36,8 @@ class Ros1Reader:
         self.typestore = get_typestore(Stores.EMPTY)
 
     def __enter__(self):
-        self.reader.open()
+        from .bag_index import open_index
+        open_index(self.reader)
         try:
             definitions = {}
             for connection in self.reader.connections:
@@ -63,3 +64,17 @@ class Ros1Reader:
 
     def deserialize(self, raw, typename):
         return self.typestore.deserialize_ros1(raw, typename)
+
+    def messages(self, connections=(), start=None, stop=None):
+        if start is None and stop is None:
+            yield from self.reader.messages(connections=connections)
+            return
+        from .bag_index import IndexWindow
+        connections = list(connections) if connections else self.reader.connections
+        original = self.reader.indexes
+        self.reader.indexes = {c.id: IndexWindow(original[c.id], start, stop) for c in connections}
+        try:
+            yield from self.reader.messages(connections=connections, start=start, stop=stop)
+        finally:
+            if self.reader.bio is not None:
+                self.reader.indexes = original

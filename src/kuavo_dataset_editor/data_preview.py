@@ -104,9 +104,10 @@ def build_preview(project,target,options,directory,progress):
         for feature,ft in adapter.features.items():
             if ft['dtype'] in ('image','video'):
                 known=isinstance(adapter,CatalogSource)
-                from .sources import _safe_child
+                from .image_store import image_present
                 paths={value for run in runs for value in adapter.manifest['images'][feature][run['start_frame']:run['end_frame']]} if known else set()
-                present={value:value is not None and _safe_child(adapter.root,value).is_file() for value in paths}
+                sizes = {}
+                present={value:image_present(adapter.root,value,sizes) for value in paths}
                 available=sum(sum(present[value] for value in adapter.manifest['images'][feature][run['start_frame']:run['end_frame']]) for run in runs) if known else None
                 features.append({'feature':feature,'dtype':ft['dtype'],'shape':list(ft['shape']),
                                  'frames':count,'valid_frames':available,'camera':True,

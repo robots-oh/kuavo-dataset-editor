@@ -1,5 +1,37 @@
 # Bounded validation record
 
+## Remote preview fast paths (2026-10-28)
+
+Small fixtures verify byte-exact JPEG pass-through for legacy and packed frames,
+bounded preview RAM, file-change invalidation, playing/still preview dimensions,
+independent reader handles, close/reopen snapshot reuse, exact half-open timestamp
+windows and index invalidation. Message-definition/MD5 mismatch checks still run
+on cached readers. No preview MP4 or disk cache is generated; original Export
+image resolution/quality and annotation frame numbers are unchanged.
+
+## Import pipeline / packed images (2026-10-27)
+
+Bounded ROS1 fixtures check every compressed image byte, frame count, packed
+random access, legacy file paths, deferred event timestamps/payloads and interval
+filtering. Cache tests cover independent source IDs/annotations, changed profiles,
+truncation, unknown versions, cancellation, legacy adoption and concurrent reuse.
+Job tests cover small progress files, separate full results, unchanged-history
+metadata caching, invalidation, legacy results and incremental/idempotent attach.
+Frontend tests cover single-flight polling and recovery after errors.
+
+The official writer/loader exported a six-frame packed-image fixture with two
+instructions and matching deferred events. The five-frame whole-body cached
+preview/Export comparison also passed. No real dataset was exported or edited.
+
+Read-only measurements on an existing 157-job workspace compared the same large
+batch result: progress JSON shrank from 27,488,100 to 13,936 bytes. Serialization
+was 0.161 versus 0.0012 seconds in that sample. History metadata read/parse was
+1.022 seconds before, 0.973 seconds on a cold new cache and 0.0155 seconds warm.
+These exclude HTTP rendering/process checks, are not end-to-end Import timings,
+and do not assert that the live server was restarted. One existing small legacy
+bag catalog passed structural reuse validation in 0.109 seconds without image
+re-extraction. Original bags, caches, annotations and running jobs were unchanged.
+
 ## No-drop streaming and bounded parallel Export (2026-10-19)
 
 Small tests force a producer to wait longer than the official encoder's 0.1-second
