@@ -1741,6 +1741,13 @@ action(async () => {
   try {
     refreshState=JSON.parse(sessionStorage.getItem('editorRefresh')||'null');
   } catch { sessionStorage.removeItem('editorRefresh'); }
+  // Deep link ?project=<id>&source=<id>[&episode=<n>] (e.g. a dashboard row's "open in editor") — opens that recording.
+  const deep=new URLSearchParams(location.search);
+  if (deep.get('project')) {
+    refreshState={projectId:deep.get('project'),sourceId:deep.get('source')||null,
+                  episodeId:Number(deep.get('episode')||0),frame:0,annotationTrack:'step',annotationDrafts:{},fields:{}};
+    history.replaceState(null,'',location.pathname);   // a later reload keeps the user's own place (sessionStorage), not the link's
+  }
   const ps = await projectList();
   if (ps.length) {
     const pid = refreshState?.projectId || localStorage.getItem("editorProject");
