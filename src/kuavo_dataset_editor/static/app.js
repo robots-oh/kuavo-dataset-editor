@@ -1746,7 +1746,7 @@ action(async () => {
   if (deep.get('project')) {
     refreshState={projectId:deep.get('project'),sourceId:deep.get('source')||null,
                   episodeId:Number(deep.get('episode')||0),frame:0,annotationTrack:'step',annotationDrafts:{},fields:{}};
-    history.replaceState(null,'',location.pathname);   // a later reload keeps the user's own place (sessionStorage), not the link's
+    window.history.replaceState(null,'',location.pathname);   // (app.js has its own `history`) a later reload keeps the user's own place (sessionStorage), not the link's
   }
   const ps = await projectList();
   if (ps.length) {
