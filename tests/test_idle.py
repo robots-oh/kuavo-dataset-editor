@@ -88,3 +88,4 @@ def test_prepare_export_plan_already_excludes_trimmed_frames(tmp_path, monkeypat
     assert plain['kept_frames'] == 10 and 'trimmed_idle_frames' not in plain
     assert trimmed['kept_frames'] == 7 and trimmed['trimmed_idle_frames'] == 3 and trimmed['output_frames'] == 7
     assert seen == [['a']]
+    assert 'trimmed_idle_estimate' not in trimmed      # legacy schema: the raw arrays are what gets exported

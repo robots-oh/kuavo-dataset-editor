@@ -183,6 +183,12 @@ def prepare_export(project, target, options=None):
         from .exporter import trim_idle
         srcs = {s['source_id']: s for s in selection['sources']}
         trim_idle(project, plan, {sid: open_source(srcs[sid]) for sid in used}, srcs)
+        # Still frames are judged on the exported (whole-body) arrays. Before the export job derives them, a source
+        # only has its raw catalog arrays, so this count is an estimate (2026-10-31: plan 17869 vs export 8781);
+        # the job's result.trimmed_idle_frames is the real one.
+        if any(not srcs[sid].get('export_derivation') and srcs[sid]['kind'] != 'lerobot' for sid in used) \
+                and schema != 'legacy':
+            plan['trimmed_idle_estimate'] = True
     for source in project["sources"]:
         original = Path(source.get("original_path", source["path"])).resolve()
         exact_dataset = source["kind"] == "lerobot" and Path(source["path"]).resolve() == target
@@ -317,6 +323,7 @@ class RepositoryTransaction:
                       episodes_added=self.plan['num_episodes'],
                       skipped_duplicate_frames=self.plan.get('skipped_duplicate_frames',0),
                       dataset_name=self.plan["name"], frames_added=self.plan["kept_frames"],
+                      trimmed_idle_frames=self.plan.get("trimmed_idle_frames", 0),
                       backup=str(self.backup) if mode != "new" else None)
         if mode != "new":
             result["source_relocation"] = {"old_path": str(self.target), "backup": str(self.backup),
