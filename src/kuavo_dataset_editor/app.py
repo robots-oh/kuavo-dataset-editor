@@ -409,6 +409,18 @@ def create_app(workspace, allowed_roots=()):
                 raise EditError('join_max_gap_s는 0 초보다 크고 120 초 이하인 숫자여야 합니다.')
             project = {**project, 'export': {**(project.get('export') or {}),
                                              'join_across_gaps': body['join_across_gaps'], 'join_max_gap_s': float(gap_s)}}
+        if body.get('trim_idle') is not None:
+            # Drop long still stretches inside clips (idle.py — scripted pipelines wait for planning; VLA learns to stall).
+            if not isinstance(body['trim_idle'], bool):
+                raise EditError('trim_idle는 true/false 여야 합니다.')
+            knobs = {}
+            for key, lo, hi in (('idle_min_s', 0.2, 60.0), ('idle_keep_s', 0.0, 10.0)):
+                if key in body:
+                    v = body[key]
+                    if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi:
+                        raise EditError('%s는 %g ~ %g 초 사이 숫자여야 합니다.' % (key, lo, hi))
+                    knobs[key] = float(v)
+            project = {**project, 'export': {**(project.get('export') or {}), 'trim_idle': body['trim_idle'], **knobs}}
         if mode == "new":
             identity = repo_identity(body.get("repo_name") or ('preview-'+pid if preview else ''))
             target = allowed(body.get("target") or (workspace/'.preview-plans'/pid if preview else workspace / "exports" / identity["slug"]))
@@ -422,6 +434,7 @@ def create_app(workspace, allowed_roots=()):
                    'schema':body.get('schema','legacy'),
                    'annotation_track':body.get('annotation_track','step'),
                    'join_across_gaps': (project.get('export') or {}).get('join_across_gaps') is True,
+                   'trim_idle': (project.get('export') or {}).get('trim_idle') is True,
                    "confirm_existing": body.get("confirm_existing") is True}
         if body.get('rack_calibration') is not None:
             if not isinstance(body['rack_calibration'],dict):

@@ -9,7 +9,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .core import EditError, compile_selection, run_output_time
+from .core import EditError, compile_selection, run_output_time, run_segments
 from .integrations.lerobot import LeRobotBackend
 from .sources import CatalogSource, fingerprint, open_source, write_json
 
@@ -22,6 +22,31 @@ def clean_features(features):
         result[key] = {"dtype": "video" if ft["dtype"] == "image" else ft["dtype"],
                        "shape": tuple(ft["shape"]), "names": deepcopy(ft.get("names"))}
     return result
+
+
+def trim_idle(project, plan, adapters, sources):
+    """export trim_idle(idle.py): drop long still stretches inside clips of every run, in place on plan (runs · kept_frames)."""
+    settings = project.get('export') or {}
+    if settings.get('trim_idle') is not True:
+        return
+    from .idle import DEFAULTS, still_frames, trim_run
+    knobs = {k: float(settings.get(k, v)) for k, v in DEFAULTS.items()}
+    cache, total = {}, 0
+    for i, run in enumerate(plan['runs']):
+        adapter = adapters[run['source_id']]
+        arrays = getattr(adapter, 'arrays', None) or {}
+        if 'action' not in arrays or 'observation.state' not in arrays:
+            raise EditError('trim_idle 은 action · observation.state 배열이 있는 source(whole-body schema)에서만 됩니다.')
+        key = run['source_id']
+        if key not in cache:
+            names = (adapter.features.get('observation.state') or {}).get('names')
+            cache[key] = still_frames(arrays['action'], arrays['observation.state'], knobs['idle_eps_action'],
+                                      knobs['idle_eps_state'], names)
+        plan['runs'][i], dropped = trim_run(run, cache[key], float(sources[key]['fps']), knobs['idle_min_s'], knobs['idle_keep_s'])
+        total += dropped
+    plan['kept_frames'] -= total
+    plan['trimmed_idle_frames'] = total
+    plan['trim_idle'] = knobs
 
 
 def _write_dataset(project, staging, job_root, progress, transaction):
@@ -50,6 +75,7 @@ def _write_dataset(project, staging, job_root, progress, transaction):
             # NPZ indexing decompresses an entire column, not just one element.
             with np.load(adapter.root / adapter.manifest['time_mapping'], allow_pickle=False) as mapping:
                 time_maps[sid] = {key: mapping[key] for key in mapping.files}
+    trim_idle(project, plan, adapters, sources)
     features = clean_features(next(iter(adapters.values())).features)
     for sid, adapter in adapters.items():
         if clean_features(adapter.features) != features:
@@ -105,8 +131,10 @@ def _write_dataset(project, staging, job_root, progress, transaction):
                                 "end_trimmed": run["end_frame"] != original_episode["num_frames"],
                                 "terminal_features": "preserved_without_inventing_success"})
             episode_frame = 0                       # contiguous even when the run joins across a dropped gap
+            inside = [range(a, b) for a, b in run_segments(run)]   # trim_idle drops frames inside clips too
             requests = ((clip, source_frame) for clip in run['clips']
-                        for source_frame in range(clip['start_frame'], clip['end_frame']))
+                        for source_frame in range(clip['start_frame'], clip['end_frame'])
+                        if any(source_frame in r for r in inside))
             def read_frame(request):
                 _, source_frame = request
                 fixes = repairs.get((run['source_id'], run['episode_id'], source_frame), [])
