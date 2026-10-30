@@ -62,3 +62,29 @@ def test_exporter_trim_idle_updates_plan_and_needs_wholebody_arrays():
     with pytest.raises(EditError):
         exporter.trim_idle(project, {'runs': plan['runs'], 'kept_frames': 1}, {'s': types.SimpleNamespace(arrays={}, features={})},
                            {'s': {'fps': 30}})
+
+
+def test_prepare_export_plan_already_excludes_trimmed_frames(tmp_path, monkeypatch):
+    """export-plan(2026-10-31): callers check kept_frames before · dataset frames after — the plan must already be trimmed."""
+    from kuavo_dataset_editor import exporter
+    from kuavo_dataset_editor.core import label, new_project
+    from kuavo_dataset_editor.repositories import prepare_export
+    from kuavo_dataset_editor.sources import demo_source
+
+    seen = []
+
+    def fake_trim(project, plan, adapters, sources):
+        if (project.get('export') or {}).get('trim_idle') is not True:
+            return
+        seen.append(sorted(adapters))
+        plan['kept_frames'] -= 3
+        plan['trimmed_idle_frames'] = 3
+    monkeypatch.setattr(exporter, 'trim_idle', fake_trim)
+    project = new_project('p')
+    project['sources'] = [demo_source(tmp_path / 'source', 'a')]
+    project = label(project, 'a', 0, 2, 12, 'pick')
+    plain = prepare_export(project, tmp_path / 'd1', {'mode': 'new', 'repo_name': 'x/y'})
+    trimmed = prepare_export({**project, 'export': {'trim_idle': True}}, tmp_path / 'd2', {'mode': 'new', 'repo_name': 'x/y'})
+    assert plain['kept_frames'] == 10 and 'trimmed_idle_frames' not in plain
+    assert trimmed['kept_frames'] == 7 and trimmed['trimmed_idle_frames'] == 3 and trimmed['output_frames'] == 7
+    assert seen == [['a']]

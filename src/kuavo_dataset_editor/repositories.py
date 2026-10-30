@@ -177,6 +177,12 @@ def prepare_export(project, target, options=None):
         schemas.append(clean_features(schema_features(open_source(source).features,schema)))
     if any(schema != schemas[0] for schema in schemas[1:]):
         raise EditError("source feature schema가 다릅니다. 같은 profile끼리 export하세요.")
+    if (project.get('export') or {}).get('trim_idle') is True:
+        # export-plan's kept_frames · output_frames must already exclude the trimmed still stretches (callers check frame counts
+        # before/after). The export itself recompiles and trims the same way (exporter.trim_idle).
+        from .exporter import trim_idle
+        srcs = {s['source_id']: s for s in selection['sources']}
+        trim_idle(project, plan, {sid: open_source(srcs[sid]) for sid in used}, srcs)
     for source in project["sources"]:
         original = Path(source.get("original_path", source["path"])).resolve()
         exact_dataset = source["kind"] == "lerobot" and Path(source["path"]).resolve() == target
