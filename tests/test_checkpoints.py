@@ -152,3 +152,43 @@ def test_lock_excludes_live_owner_and_archives_dead_legacy_owner(tmp_path):
         with dataset_lock(target):
             pytest.fail('unknown lock')
     assert lock.read_text() == 'not-json'
+
+
+def test_without_hard_links_frozen_history_stays_in_staging_and_only_new_rows_are_saved(tmp_path, monkeypatch):
+    staging, job = tmp_path / 'out.partial', tmp_path / 'job'
+    (staging / 'editor/history/old').mkdir(parents=True)
+    (staging / 'editor/event_chunks').mkdir()
+    (staging / 'meta').mkdir()
+    job.mkdir()
+    old, chunk, events = (staging / 'editor/history/old/events.jsonl', staging / 'editor/event_chunks/0001.jsonl',
+                          staging / 'editor/events.jsonl')
+    old.write_text('h1\n')
+    chunk.write_text('c1\n')
+    events.write_text('e1\n')
+    write_json(staging / 'meta/info.json', {'total_episodes': 1})
+    def no_links(*args):
+        raise OSError('hard links unavailable')
+    monkeypatch.setattr(os, 'link', no_links)
+    checkpoint = EpisodeCheckpoint(staging, job, {})
+    checkpoint.rows_base = 2
+    rows = [{'index': 0}, {'index': 1}, {'index': 2}]
+    state = checkpoint.save(1, 1, rows, [], [])
+    mutable = job / state['directory'] / 'mutable'
+    # GBs of history are not copied after every episode; events.jsonl (appended later) still is.
+    assert sorted(state['in_place']) == ['editor/event_chunks/0001.jsonl', 'editor/history/old/events.jsonl']
+    assert not [p for p in mutable.rglob('*') if p.is_file() and p.parts[-3:-1] != () and ('history' in p.parts or 'event_chunks' in p.parts)]
+    assert (mutable / 'editor/events.jsonl').read_text() == 'e1\n'
+    assert json.loads((job / state['directory'] / 'rows.json').read_text()) == [{'index': 2}]
+    write_json(staging / 'meta/info.json', {'total_episodes': 999})
+    (staging / 'editor/history/new').mkdir()
+    (staging / 'editor/history/new/events.jsonl').write_text('partial\n')
+    restored = EpisodeCheckpoint(staging, job, {}).restore()
+    assert restored['rows'] == [{'index': 2}] and restored['rows_base'] == 2
+    assert old.read_text() == 'h1\n' and chunk.read_text() == 'c1\n'
+    assert json.loads((staging / 'meta/info.json').read_text())['total_episodes'] == 1
+    assert not (staging / 'editor/history/new/events.jsonl').exists()
+    assert list(job.glob('interrupted-*/editor/history/new/events.jsonl'))
+    # A frozen file that did change cannot be put back, so the checkpoint refuses instead of resuming on it.
+    old.write_text('rewritten\n')
+    with pytest.raises(EditError, match='변경/누락'):
+        EpisodeCheckpoint(staging, job, {}).restore()

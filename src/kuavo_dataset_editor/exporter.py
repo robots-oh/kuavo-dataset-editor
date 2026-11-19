@@ -94,7 +94,20 @@ def _write_dataset(project, staging, job_root, progress, transaction):
         'project': transaction.project, 'settings': settings, 'backend': backend.describe(),
         'sources': {sid: fingerprint(adapter.root) for sid, adapter in adapters.items()}})
     restored = checkpoint.restore()
-    output_rows = restored['rows'] if restored else (existing_provenance(staging, settings) if append else [])
+    if restored:
+        output_rows = restored['rows']
+        checkpoint.rows_base = int(restored.get('rows_base') or 0)
+        if checkpoint.rows_base:
+            # The checkpoint kept only this job's rows; the baseline comes back from the restored mapping.
+            baseline = existing_provenance(staging, settings)
+            if len(baseline) != checkpoint.rows_base:
+                raise EditError('checkpoint의 기존 frame 수가 dataset과 다릅니다. 새 Export를 시작하세요.')
+            output_rows = baseline + output_rows
+    else:
+        output_rows = existing_provenance(staging, settings) if append else []
+        # Only a mapping file is restored byte-for-byte with the metadata; rows rebuilt from the dataset itself are not.
+        if append and (staging / 'editor/frame_mapping.parquet').is_file():
+            checkpoint.rows_base = len(output_rows)
     truncation_file = staging / "editor/truncation.json"
     truncations = restored['truncations'] if restored else (json.loads(truncation_file.read_text()) if append and truncation_file.exists() else [])
     finished = restored['completed_frames'] if restored else 0

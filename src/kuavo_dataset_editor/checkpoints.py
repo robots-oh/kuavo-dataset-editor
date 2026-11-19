@@ -37,6 +37,14 @@ def frozen(name):
             or name in ('editor/events.jsonl', 'editor/events.jsonl.gz'))
 
 
+def kept_in_place(name):
+    """Frozen files a checkpoint may leave in staging when hard links are impossible (exFAT/FAT).
+
+    Earlier exports' history snapshots and finished event chunks are never rewritten or appended, so the bytes
+    in staging are the checkpoint. events.jsonl is excluded: it is appended in place after the episode loop."""
+    return name.startswith(('editor/history/', 'editor/event_chunks/'))
+
+
 def link_or_copy(source, destination):
     """Hard link an immutable file (same disk: no bytes copied); copy when linking is impossible."""
     try:
@@ -69,6 +77,9 @@ class EpisodeCheckpoint:
     def __init__(self, staging, job_root, identity):
         self.staging, self.root = Path(staging), Path(job_root)
         self.identity = signature(identity)
+        # Rows before this index are the append baseline, recoverable from the restored
+        # editor/frame_mapping.parquet; a checkpoint then stores only the rows this job added.
+        self.rows_base = 0
 
     def save(self, completed, frames, rows, truncations, timings):
         previous = checkpoint_state(self.root)
@@ -81,6 +92,7 @@ class EpisodeCheckpoint:
         folder = self.root / ('checkpoint-' + uuid4().hex)
         folder.mkdir()
         inventory = {}
+        in_place = []
         if self.staging.exists():
             for path in self.staging.rglob('*'):
                 if path.is_symlink():
@@ -95,7 +107,15 @@ class EpisodeCheckpoint:
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     # Large frozen provenance (GBs, grows with every export) is linked, not copied per episode.
                     if frozen(name):
-                        link_or_copy(path, dest)
+                        if kept_in_place(name):
+                            try:
+                                os.link(path, dest)
+                            except OSError:
+                                # No hard links here: copying GBs of history after every episode made a
+                                # checkpoint cost more than the episode. restore() verifies size/mtime instead.
+                                in_place.append(name)
+                        else:
+                            link_or_copy(path, dest)
                         continue
                     saved = previous_root / 'mutable' / name if previous_root else None
                     # Link only immutable checkpoint copies to each other. Never
@@ -109,11 +129,13 @@ class EpisodeCheckpoint:
                         except OSError:
                             pass  # Filesystems without hard links retain copy semantics.
                     shutil.copy2(path, dest)
-        write_json(folder / 'rows.json', rows)
+        with (folder / 'rows.json').open('w', encoding='utf-8') as stream:
+            json.dump(rows[self.rows_base:], stream, ensure_ascii=False, separators=(',', ':'))
         write_json(folder / 'truncations.json', truncations)
         state = dict(version=1, identity=self.identity, directory=folder.name,
                      staging=str(self.staging), completed_episodes=completed,
-                     completed_frames=frames, files=inventory, timings=timings)
+                     completed_frames=frames, files=inventory, timings=timings,
+                     rows_base=self.rows_base, in_place=in_place)
         atomic_json(folder / 'state.json', state)
         # Only this pointer advertises completion, after all sidecars are ready.
         atomic_json(self.root / 'export-checkpoint.json', state)
@@ -144,12 +166,13 @@ class EpisodeCheckpoint:
         if folder.parent != self.root or not folder.is_dir():
             raise EditError('checkpoint metadata 폴더가 없습니다.')
         inventory = state['files']
+        in_place = {name for name in state.get('in_place', []) if kept_in_place(name) and name in inventory}
         # Check every completed, immutable file before touching any partial work.
         for name, expected in inventory.items():
             path = self.staging / name
             if not path.resolve().is_relative_to(self.staging.resolve()):
                 raise EditError('잘못된 checkpoint 경로입니다.')
-            if name.split('/')[0] not in ('meta', 'editor'):
+            if name.split('/')[0] not in ('meta', 'editor') or name in in_place:
                 stat = path.stat() if path.is_file() else None
                 if stat is None or [stat.st_size, stat.st_mtime_ns] != expected:
                     raise EditError(f'완료 episode 파일이 변경/누락됐습니다: {name}. checkpoint를 덮어쓰지 않습니다.')
@@ -159,6 +182,8 @@ class EpisodeCheckpoint:
             if not path.is_file() and not path.is_symlink():
                 continue
             name = path.relative_to(self.staging).as_posix()
+            if name in in_place:
+                continue
             if name not in inventory or name.split('/')[0] in ('meta', 'editor'):
                 dest = quarantine / name
                 dest.parent.mkdir(parents=True, exist_ok=True)

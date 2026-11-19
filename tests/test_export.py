@@ -101,3 +101,65 @@ def test_interrupted_export_reuses_completed_episode(tmp_path, monkeypatch):
     assert rows[4]['source//state'] == int(times[10] + 5)
     assert len(LeRobotBackend().load_dataset(target)) == 8
     assert len(json.loads((target / 'editor/report.json').read_text())['episode_timings']) == 2
+
+
+@pytest.mark.skipif(os.environ.get('EDITOR_TEST_EXPORT') != '1', reason='bounded real append resume smoke')
+def test_interrupted_append_without_hard_links_keeps_history_in_place_and_resumes(tmp_path, monkeypatch):
+    """exFAT workspace: a checkpoint must not copy the dataset's history or rewrite the baseline rows per episode."""
+    import json
+    import pyarrow.parquet as pq
+    from kuavo_dataset_editor.checkpoints import checkpoint_state
+    from kuavo_dataset_editor.exporter import export_dataset
+    from kuavo_dataset_editor.integrations.lerobot import LeRobotBackend
+    from kuavo_dataset_editor.repositories import with_existing_labels
+    from kuavo_dataset_editor.sources import write_json
+    source = demo_source(tmp_path / 'source', 'a')
+    source['events'] = 'events.jsonl'
+    (tmp_path / 'source/events.jsonl').write_text(json.dumps({'source_time_s': 0.3, 'topic': '/tag7'}) + '\n')
+    write_json(tmp_path / 'source/catalog.json', source)
+    target = tmp_path / 'dataset'
+    def addition(name, *ranges):
+        project = new_project(name)
+        project['sources'] = [source]
+        for start, end in ranges:
+            project = label(project, 'a', 0, start, end, name)
+        if target.exists():
+            imported = LeRobotSource(target).descriptor('target-itself')
+            project['sources'].append(imported)
+            project = with_existing_labels(project, imported)
+        return project
+    confirm = {'mode': 'append', 'confirm_existing': True}
+    export_dataset(addition('first', (2, 6)), target, tmp_path / 'job-new', lambda *_: None, {'mode': 'new', 'repo_name': 'team/x'})
+    export_dataset(addition('second', (20, 24)), target, tmp_path / 'job-a1', lambda *_: None, confirm)
+    baseline = pq.read_table(target / 'editor/frame_mapping.parquet').to_pylist()
+    history = {p.relative_to(target): p.read_bytes() for p in (target / 'editor/history').rglob('*') if p.is_file()}
+    assert len(baseline) == 8 and history
+    real_link = os.link
+    def no_links(*args, **kwargs):
+        raise OSError('hard links unavailable')
+    monkeypatch.setattr(os, 'link', no_links)
+    project, job = addition('third', (40, 44), (60, 64)), tmp_path / 'job-a2'
+    def interrupt(_, message):
+        if 'episode 2/2 export' in message:
+            raise RuntimeError('synthetic interruption')
+    with pytest.raises(RuntimeError, match='interruption'):
+        export_dataset(project, target, job, interrupt, confirm)
+    state = checkpoint_state(job)
+    assert state['completed_episodes'] == 1 and state['rows_base'] == 8
+    assert any(name.startswith('editor/history/') for name in state['in_place'])
+    folder = job / state['directory']
+    assert len(json.loads((folder / 'rows.json').read_text())) == 4          # only this job's frames
+    assert not [p for p in (folder / 'mutable').rglob('*') if p.is_file() and 'history' in p.parts]
+    saved = []
+    original = LeRobotBackend.save_episode
+    monkeypatch.setattr(LeRobotBackend, 'save_episode', staticmethod(lambda writer: (saved.append(True), original(writer))[1]))
+    result = export_dataset(project, target, job, lambda *_: None, confirm)
+    monkeypatch.setattr(os, 'link', real_link)
+    assert len(saved) == 1 and result['frames'] == 16 and result['episodes'] == 4
+    rows = pq.read_table(target / 'editor/frame_mapping.parquet').to_pylist()
+    assert [r['index'] for r in rows] == list(range(16))
+    assert [{k: r[k] for k in b} for r, b in zip(rows, baseline)] == baseline
+    assert [r['source_frame'] for r in rows[8:]] == [40, 41, 42, 43, 60, 61, 62, 63]
+    for relative, expected in history.items():
+        assert (target / relative).read_bytes() == expected
+    assert len(LeRobotBackend().load_dataset(target)) == 16
